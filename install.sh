@@ -224,7 +224,7 @@ while [[ -z "$LICENSE_DOMAIN" ]]; do
 done
 echo
 
-API_PORT="9777"
+API_PORT="8080"
 
 echo -e "${BLUE}══════════════════════════════════════${NC}"
 echo
