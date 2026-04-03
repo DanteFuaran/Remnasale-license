@@ -9,12 +9,6 @@ Telegram-бот + REST API для выдачи, продления и отзыв
 ## 🚀 Установка
 
 ```bash
-cd /opt && bash <(curl -s https://raw.githubusercontent.com/DanteFuaran/Remnasale-install/main/install-license.sh)
-```
-
-Или вручную:
-
-```bash
 git clone https://github.com/DanteFuaran/Remnasale-license.git /opt/remnasale-license
 cd /opt/remnasale-license
 cp .env.example .env
