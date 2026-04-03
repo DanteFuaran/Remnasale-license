@@ -238,14 +238,14 @@ echo
 # ── Клонирование / обновление репозитория ──────────────────
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     printf "${GREEN}▶${NC}  Обновление существующей установки...\n"
-    _run_spinner "Обновление репозитория" git -C "$INSTALL_DIR" pull origin main
+    _run_spinner "Обновление репозитория" env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="" git -c credential.helper="" -C "$INSTALL_DIR" pull origin main
     if [[ $? -ne 0 ]]; then
         echo -e "${RED}✖  Ошибка обновления репозитория.${NC}"
         exit 1
     fi
     echo -e "${GREEN}✔${NC}  Репозиторий обновлён."
 else
-    _run_spinner "Клонирование license-сервера" git clone "$REPO_URL" "$INSTALL_DIR"
+    _run_spinner "Клонирование license-сервера" env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="" git -c credential.helper="" clone "$REPO_URL" "$INSTALL_DIR"
     if [[ $? -ne 0 ]]; then
         echo -e "${RED}✖  Ошибка клонирования. Проверьте интернет-соединение.${NC}"
         exit 1
@@ -256,14 +256,14 @@ fi
 # ── Клонирование / обновление setup-файлов ─────────────────
 SETUP_REPO_AUTH="https://${GITHUB_PAT}@github.com/DanteFuaran/Remnasale.git"
 if [[ -d "$SETUP_DIR/.git" ]]; then
-    _run_spinner "Обновление setup-файлов" git -C "$SETUP_DIR" pull origin lic
+    _run_spinner "Обновление setup-файлов" env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="" git -c credential.helper="" -C "$SETUP_DIR" pull "$SETUP_REPO_AUTH" lic
     if [[ $? -ne 0 ]]; then
         echo -e "${YELLOW}  ⚠  Не удалось обновить setup-файлы, продолжаем...${NC}"
     else
         echo -e "${GREEN}✔${NC}  Setup-файлы обновлены."
     fi
 else
-    _run_spinner "Загрузка setup-файлов" git clone --branch lic --single-branch "$SETUP_REPO_AUTH" "$SETUP_DIR"
+    _run_spinner "Загрузка setup-файлов" env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="" git -c credential.helper="" clone --branch lic --single-branch "$SETUP_REPO_AUTH" "$SETUP_DIR"
     if [[ $? -ne 0 ]]; then
         echo -e "${YELLOW}  ⚠  Не удалось загрузить setup-файлы (проверьте PAT). Продолжаем...${NC}"
     else
