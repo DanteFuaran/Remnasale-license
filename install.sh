@@ -1,4 +1,7 @@
 #!/bin/bash
+# ═══════════════════════════════════════════════════════════
+#   Remnasale License — Установка сервера лицензий
+# ═══════════════════════════════════════════════════════════
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -10,7 +13,9 @@ NC='\033[0m'
 
 _ORIG_STTY=$(stty -g 2>/dev/null || true)
 INSTALL_DIR="/opt/remnasale-license"
+SETUP_DIR="/opt/remnasale-setup"
 REPO_URL="https://github.com/DanteFuaran/Remnasale-license.git"
+SETUP_REPO_URL="https://github.com/DanteFuaran/Remnasale.git"
 _spin=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
 cleanup_terminal() {
@@ -146,7 +151,7 @@ _run_spinner() {
 }
 
 # ═══════════════════════════════════════════════════════════
-clear
+
 tput civis 2>/dev/null
 echo -e "${BLUE}══════════════════════════════════════${NC}"
 echo -e "     🔑  Remnasale License — Установка"
@@ -171,11 +176,19 @@ if ! docker compose version &>/dev/null; then
     exit 1
 fi
 
+# Автоопределение IP сервера
+SERVER_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || \
+            curl -s --max-time 5 https://ifconfig.me 2>/dev/null || \
+            hostname -I 2>/dev/null | awk '{print $1}')
+
 echo -e "${CYAN}Для установки понадобятся:${NC}"
 echo -e "  ${DARKGRAY}•${NC} Токен Telegram бота — получить у ${YELLOW}@BotFather${NC}"
 echo -e "  ${DARKGRAY}•${NC} Ваш Telegram ID — узнать у ${YELLOW}@userinfobot${NC}"
 echo -e "  ${DARKGRAY}•${NC} GitHub PAT с доступом к Remnasale ${DARKGRAY}(scope: repo)${NC}"
-echo -e "  ${DARKGRAY}•${NC} Домен этого сервера ${DARKGRAY}(например: license.example.com)${NC}"
+echo
+if [[ -n "$SERVER_IP" ]]; then
+    echo -e "  ${DARKGRAY}•${NC} IP этого сервера: ${GREEN}${SERVER_IP}${NC} ${DARKGRAY}(определён автоматически)${NC}"
+fi
 echo
 echo -e "${BLUE}══════════════════════════════════════${NC}"
 echo
@@ -209,17 +222,6 @@ while [[ -z "$GITHUB_PAT" ]]; do
 done
 echo
 
-# ── LICENSE_DOMAIN ─────────────────────────────────────────
-LICENSE_DOMAIN=""
-while [[ -z "$LICENSE_DOMAIN" ]]; do
-    reading_inline "Домен этого сервера (без https://):" LICENSE_DOMAIN
-    [[ $? -eq 2 ]] && _cancel_exit
-    # Убираем схему если пользователь её написал
-    LICENSE_DOMAIN=$(echo "$LICENSE_DOMAIN" | sed 's|^https\?://||; s|/.*||')
-    [[ -z "$LICENSE_DOMAIN" ]] && echo -e "${RED}  ✖  Домен не может быть пустым.${NC}"
-done
-echo
-
 # ── API_PORT ────────────────────────────────────────────────
 API_PORT=""
 reading_inline_default "Порт API:" API_PORT "8080"
@@ -243,12 +245,30 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
     fi
     echo -e "${GREEN}✔${NC}  Репозиторий обновлён."
 else
-    _run_spinner "Клонирование репозитория" git clone "$REPO_URL" "$INSTALL_DIR"
+    _run_spinner "Клонирование license-сервера" git clone "$REPO_URL" "$INSTALL_DIR"
     if [[ $? -ne 0 ]]; then
         echo -e "${RED}✖  Ошибка клонирования. Проверьте интернет-соединение.${NC}"
         exit 1
     fi
     echo -e "${GREEN}✔${NC}  Репозиторий клонирован."
+fi
+
+# ── Клонирование / обновление setup-файлов ─────────────────
+SETUP_REPO_AUTH="https://${GITHUB_PAT}@github.com/DanteFuaran/Remnasale.git"
+if [[ -d "$SETUP_DIR/.git" ]]; then
+    _run_spinner "Обновление setup-файлов" git -C "$SETUP_DIR" pull origin lic
+    if [[ $? -ne 0 ]]; then
+        echo -e "${YELLOW}  ⚠  Не удалось обновить setup-файлы, продолжаем...${NC}"
+    else
+        echo -e "${GREEN}✔${NC}  Setup-файлы обновлены."
+    fi
+else
+    _run_spinner "Загрузка setup-файлов" git clone --branch lic --single-branch "$SETUP_REPO_AUTH" "$SETUP_DIR"
+    if [[ $? -ne 0 ]]; then
+        echo -e "${YELLOW}  ⚠  Не удалось загрузить setup-файлы (проверьте PAT). Продолжаем...${NC}"
+    else
+        echo -e "${GREEN}✔${NC}  Setup-файлы загружены."
+    fi
 fi
 
 # ── Создание .env ───────────────────────────────────────────
@@ -261,6 +281,7 @@ API_PORT=${API_PORT}
 DATABASE_PATH=/data/license.db
 GITHUB_PAT=${GITHUB_PAT}
 GITHUB_REPO=DanteFuaran/Remnasale
+SETUP_DIR=/setup
 EOF
 echo -e "${GREEN}✔${NC}  Файл .env создан."
 echo
@@ -272,18 +293,27 @@ if [[ $? -ne 0 ]]; then
     echo -e "${RED}✖  Ошибка запуска контейнеров. Проверьте вывод выше.${NC}"
     exit 1
 fi
+echo -e "${GREEN}✔${NC}  Контейнер запущен."
 
+# ── Установка команды rl ────────────────────────────────────
+chmod +x "$INSTALL_DIR/rl.sh"
+ln -sf "$INSTALL_DIR/rl.sh" /usr/local/bin/rl
+echo -e "${GREEN}✔${NC}  Команда ${YELLOW}rl${NC} установлена."
 echo
+
 echo -e "${BLUE}══════════════════════════════════════${NC}"
 echo -e "${GREEN}✅  Установка завершена!${NC}"
 echo
-echo -e "  ${CYAN}LICENSE_SERVER URL для клиентов:${NC}"
-echo -e "  ${YELLOW}https://${LICENSE_DOMAIN}${NC}"
-echo
-echo -e "  ${DARKGRAY}Укажите этот URL в install.sh ветки lic:${NC}"
-echo -e "  ${DARKGRAY}LICENSE_SERVER=\"https://${LICENSE_DOMAIN}\"${NC}"
-echo
+if [[ -n "$SERVER_IP" ]]; then
+    echo -e "  ${CYAN}IP сервера лицензий:${NC}"
+    echo -e "  ${YELLOW}${SERVER_IP}:${API_PORT}${NC}"
+    echo
+    echo -e "  ${DARKGRAY}Укажите этот адрес в настройках установки клиентов:${NC}"
+    echo -e "  ${DARKGRAY}LICENSE_SERVER=\"http://${SERVER_IP}:${API_PORT}\"${NC}"
+    echo
+fi
 echo -e "  ${CYAN}Управление:${NC} напишите боту ${YELLOW}/start${NC}"
+echo -e "  ${CYAN}Консоль:${NC}    команда ${YELLOW}rl${NC}"
 echo -e "${BLUE}══════════════════════════════════════${NC}"
 echo
 
