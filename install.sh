@@ -176,19 +176,11 @@ if ! docker compose version &>/dev/null; then
     exit 1
 fi
 
-# Автоопределение IP сервера
-SERVER_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || \
-            curl -s --max-time 5 https://ifconfig.me 2>/dev/null || \
-            hostname -I 2>/dev/null | awk '{print $1}')
-
 echo -e "${CYAN}Для установки понадобятся:${NC}"
 echo -e "  ${DARKGRAY}•${NC} Токен Telegram бота — получить у ${YELLOW}@BotFather${NC}"
 echo -e "  ${DARKGRAY}•${NC} Ваш Telegram ID — узнать у ${YELLOW}@userinfobot${NC}"
 echo -e "  ${DARKGRAY}•${NC} GitHub PAT с доступом к Remnasale ${DARKGRAY}(scope: repo)${NC}"
-echo
-if [[ -n "$SERVER_IP" ]]; then
-    echo -e "  ${DARKGRAY}•${NC} IP этого сервера: ${GREEN}${SERVER_IP}${NC} ${DARKGRAY}(определён автоматически)${NC}"
-fi
+echo -e "  ${DARKGRAY}•${NC} Домен этого сервера ${DARKGRAY}(например: rs-license.dfc-online.com)${NC}"
 echo
 echo -e "${BLUE}══════════════════════════════════════${NC}"
 echo
@@ -222,15 +214,17 @@ while [[ -z "$GITHUB_PAT" ]]; do
 done
 echo
 
-# ── API_PORT ────────────────────────────────────────────────
-API_PORT=""
-reading_inline_default "Порт API:" API_PORT "8080"
-[[ $? -eq 2 ]] && _cancel_exit
-if ! [[ "$API_PORT" =~ ^[0-9]+$ ]] || [[ "$API_PORT" -lt 1 ]] || [[ "$API_PORT" -gt 65535 ]]; then
-    echo -e "${YELLOW}  ⚠  Некорректный порт, используется 8080.${NC}"
-    API_PORT="8080"
-fi
+# ── LICENSE_DOMAIN ─────────────────────────────────────────
+LICENSE_DOMAIN=""
+while [[ -z "$LICENSE_DOMAIN" ]]; do
+    reading_inline "Домен этого сервера (без https://)" LICENSE_DOMAIN
+    [[ $? -eq 2 ]] && _cancel_exit
+    LICENSE_DOMAIN=$(echo "$LICENSE_DOMAIN" | sed 's|^https\?://||; s|/.*||')
+    [[ -z "$LICENSE_DOMAIN" ]] && echo -e "${RED}  ✖  Домен не может быть пустым.${NC}"
+done
 echo
+
+API_PORT="9777"
 
 echo -e "${BLUE}══════════════════════════════════════${NC}"
 echo
@@ -286,6 +280,13 @@ EOF
 echo -e "${GREEN}✔${NC}  Файл .env создан."
 echo
 
+# ── Открытие порта в ufw ────────────────────────────────────
+if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+    ufw allow 9777/tcp >/dev/null 2>&1 || true
+    ufw reload >/dev/null 2>&1 || true
+    echo -e "${GREEN}✔${NC}  Порт ${YELLOW}9777${NC} открыт в ufw."
+fi
+
 # ── Сборка и запуск контейнеров ────────────────────────────
 printf "${GREEN}▶${NC}  Сборка и запуск контейнеров...\n"
 docker compose -f "$INSTALL_DIR/docker-compose.yml" up -d --build
@@ -304,14 +305,12 @@ echo
 echo -e "${BLUE}══════════════════════════════════════${NC}"
 echo -e "${GREEN}✅  Установка завершена!${NC}"
 echo
-if [[ -n "$SERVER_IP" ]]; then
-    echo -e "  ${CYAN}IP сервера лицензий:${NC}"
-    echo -e "  ${YELLOW}${SERVER_IP}:${API_PORT}${NC}"
-    echo
-    echo -e "  ${DARKGRAY}Укажите этот адрес в настройках установки клиентов:${NC}"
-    echo -e "  ${DARKGRAY}LICENSE_SERVER=\"http://${SERVER_IP}:${API_PORT}\"${NC}"
-    echo
-fi
+echo -e "  ${CYAN}Домен сервера лицензий:${NC}"
+echo -e "  ${YELLOW}https://${LICENSE_DOMAIN}${NC}"
+echo
+echo -e "  ${DARKGRAY}Укажите этот домен в настройках установки клиентов:${NC}"
+echo -e "  ${DARKGRAY}LICENSE_SERVER=\"https://${LICENSE_DOMAIN}\"${NC}"
+echo
 echo -e "  ${CYAN}Управление:${NC} напишите боту ${YELLOW}/start${NC}"
 echo -e "  ${CYAN}Консоль:${NC}    команда ${YELLOW}rl${NC}"
 echo -e "${BLUE}══════════════════════════════════════${NC}"
