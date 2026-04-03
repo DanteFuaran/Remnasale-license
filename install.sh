@@ -13,9 +13,7 @@ NC='\033[0m'
 
 _ORIG_STTY=$(stty -g 2>/dev/null || true)
 INSTALL_DIR="/opt/remnasale-license"
-SETUP_DIR="/opt/remnasale-setup"
 REPO_URL="https://github.com/DanteFuaran/Remnasale-license.git"
-SETUP_REPO_URL="https://github.com/DanteFuaran/Remnasale.git"
 _spin=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
 cleanup_terminal() {
@@ -247,24 +245,6 @@ else
     echo -e "${GREEN}✔${NC}  Репозиторий клонирован."
 fi
 
-# ── Клонирование / обновление setup-файлов ─────────────────
-SETUP_REPO_AUTH="https://${GITHUB_PAT}@github.com/DanteFuaran/Remnasale.git"
-if [[ -d "$SETUP_DIR/.git" ]]; then
-    _run_spinner "Обновление setup-файлов" env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="" git -c credential.helper="" -C "$SETUP_DIR" pull "$SETUP_REPO_AUTH" lic
-    if [[ $? -ne 0 ]]; then
-        echo -e "${YELLOW}  ⚠  Не удалось обновить setup-файлы, продолжаем...${NC}"
-    else
-        echo -e "${GREEN}✔${NC}  Setup-файлы обновлены."
-    fi
-else
-    _run_spinner "Загрузка setup-файлов" env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="" git -c credential.helper="" clone --branch lic --single-branch "$SETUP_REPO_AUTH" "$SETUP_DIR"
-    if [[ $? -ne 0 ]]; then
-        echo -e "${YELLOW}  ⚠  Не удалось загрузить setup-файлы (проверьте PAT). Продолжаем...${NC}"
-    else
-        echo -e "${GREEN}✔${NC}  Setup-файлы загружены."
-    fi
-fi
-
 # ── Создание .env ───────────────────────────────────────────
 mkdir -p "$INSTALL_DIR/data"
 cat > "$INSTALL_DIR/.env" <<EOF
@@ -275,7 +255,6 @@ API_PORT=${API_PORT}
 DATABASE_PATH=/data/license.db
 GITHUB_PAT=${GITHUB_PAT}
 GITHUB_REPO=DanteFuaran/Remnasale
-SETUP_DIR=/setup
 EOF
 echo -e "${GREEN}✔${NC}  Файл .env создан."
 echo

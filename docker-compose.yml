@@ -8,4 +8,4 @@ services:
       - "9777:8080"
     volumes:
       - ./data:/data
-      - /opt/remnasale-setup:/setup:ro
+      - ./version:/app/version:ro
