@@ -58,11 +58,30 @@ async def handle_version(request: web.Request) -> web.Response:
     return web.json_response({"version": _read_version()})
 
 
+async def handle_release(request: web.Request) -> web.Response:
+    db = request.app["db"]
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "reason": "invalid_body"}, status=400)
+
+    license_key = data.get("license_key", "").strip()
+    server_ip = data.get("server_ip", "").strip()
+
+    if not license_key or not server_ip:
+        return web.json_response({"success": False, "reason": "missing_fields"}, status=400)
+
+    result = await db.reset_ip_by_key(license_key, server_ip)
+    status = 200 if result["success"] else 403
+    return web.json_response(result, status=status)
+
+
 async def handle_health(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
 
 
 def setup_routes(app: web.Application):
     app.router.add_post("/api/v1/license/verify", handle_verify)
+    app.router.add_post("/api/v1/license/release", handle_release)
     app.router.add_get("/api/v1/version", handle_version)
     app.router.add_get("/health", handle_health)

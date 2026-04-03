@@ -144,6 +144,17 @@ class LicenseDB:
             await db.commit()
         return await self.get_server(server_id)
 
+    async def reset_ip_by_key(self, key: str, server_ip: str) -> dict:
+        server = await self.get_server_by_key(key)
+        if not server:
+            return {"success": False, "reason": "not_found"}
+        if server["server_ip"] and server["server_ip"] != server_ip:
+            return {"success": False, "reason": "ip_mismatch"}
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE servers SET server_ip = '' WHERE id = ?", (server["id"],))
+            await db.commit()
+        return {"success": True}
+
     async def rename_server(self, server_id: int, new_name: str) -> Optional[dict]:
         async with aiosqlite.connect(self.path) as db:
             await db.execute("UPDATE servers SET name = ? WHERE id = ?", (new_name, server_id))
