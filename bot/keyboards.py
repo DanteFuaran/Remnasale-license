@@ -32,6 +32,11 @@ def main_menu_kb(servers: list[dict]) -> InlineKeyboardMarkup:
         callback_data="add",
     )])
 
+    buttons.append([InlineKeyboardButton(
+        text="⚙️ Администрирование",
+        callback_data="admin",
+    )])
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -60,7 +65,7 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
 
     row1 = [
         InlineKeyboardButton(text="🔄 Продлить", callback_data=f"ext:{sid}"),
-        InlineKeyboardButton(text="🔓 Сбросить домен", callback_data=f"rip:{sid}"),
+        InlineKeyboardButton(text="🔓 Сбросить IP", callback_data=f"rip:{sid}"),
     ]
 
     toggle_text = "⏸ Приостановить" if is_active else "▶️ Возобновить"
@@ -82,4 +87,30 @@ def confirm_delete_kb(server_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"cdel:{server_id}"),
             InlineKeyboardButton(text="❌ Отмена", callback_data=f"s:{server_id}"),
         ]
+    ])
+
+
+def admin_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💾 Бэкап", callback_data="backup_menu")],
+        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings_menu")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="main")],
+    ])
+
+
+def backup_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Сохранить", callback_data="backup_save")],
+        [InlineKeyboardButton(text="📤 Загрузить", callback_data="backup_load")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin")],
+    ])
+
+
+def settings_kb(check_interval: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"🔄 Частота проверки: {check_interval} мин.",
+            callback_data="settings_check_interval",
+        )],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin")],
     ])

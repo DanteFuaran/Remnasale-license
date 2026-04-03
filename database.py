@@ -26,7 +26,7 @@ class LicenseDB:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
                     license_key TEXT UNIQUE NOT NULL,
-                    server_domain TEXT DEFAULT '',
+                    server_ip TEXT DEFAULT '',
                     period TEXT NOT NULL DEFAULT '1m',
                     is_active INTEGER DEFAULT 1,
                     created_at TEXT NOT NULL,
@@ -34,11 +34,23 @@ class LicenseDB:
                     last_check_at TEXT
                 )
             """)
-            # Миграция: переименование server_ip -> server_domain
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            """)
+            # Значение по умолчанию для интервала проверки
+            await db.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES ('check_interval_minutes', '1')"
+            )
+            # Миграции
             cursor = await db.execute("PRAGMA table_info(servers)")
             columns = [row[1] for row in await cursor.fetchall()]
-            if "server_ip" in columns and "server_domain" not in columns:
-                await db.execute("ALTER TABLE servers RENAME COLUMN server_ip TO server_domain")
+            if "server_domain" in columns and "server_ip" not in columns:
+                await db.execute("ALTER TABLE servers RENAME COLUMN server_domain TO server_ip")
+            elif "server_ip" not in columns and "server_domain" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN server_ip TEXT DEFAULT ''")
             await db.commit()
 
     async def _fetch_one(self, query: str, params: tuple = ()) -> Optional[dict]:
@@ -126,9 +138,9 @@ class LicenseDB:
             await db.commit()
         return await self.get_server(server_id)
 
-    async def reset_domain(self, server_id: int) -> Optional[dict]:
+    async def reset_ip(self, server_id: int) -> Optional[dict]:
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE servers SET server_domain = '' WHERE id = ?", (server_id,))
+            await db.execute("UPDATE servers SET server_ip = '' WHERE id = ?", (server_id,))
             await db.commit()
         return await self.get_server(server_id)
 
@@ -138,7 +150,7 @@ class LicenseDB:
             await db.commit()
         return await self.get_server(server_id)
 
-    async def verify_license(self, key: str, server_domain: str) -> dict:
+    async def verify_license(self, key: str, server_ip: str) -> dict:
         server = await self.get_server_by_key(key)
 
         if not server:
@@ -154,14 +166,14 @@ class LicenseDB:
             if datetime.now(timezone.utc) > expires:
                 return {"valid": False, "reason": "expired"}
 
-        if server_domain:
-            if server["server_domain"] and server["server_domain"] != server_domain:
-                return {"valid": False, "reason": "domain_mismatch"}
-            if not server["server_domain"]:
+        if server_ip:
+            if server["server_ip"] and server["server_ip"] != server_ip:
+                return {"valid": False, "reason": "ip_mismatch"}
+            if not server["server_ip"]:
                 async with aiosqlite.connect(self.path) as db:
                     await db.execute(
-                        "UPDATE servers SET server_domain = ? WHERE id = ?",
-                        (server_domain, server["id"]),
+                        "UPDATE servers SET server_ip = ? WHERE id = ?",
+                        (server_ip, server["id"]),
                     )
                     await db.commit()
 
@@ -191,3 +203,25 @@ class LicenseDB:
             if datetime.now(timezone.utc) > expires:
                 return {"valid": False, "reason": "expired"}
         return {"valid": True}
+
+    async def get_setting(self, key: str, default: str = "") -> str:
+        row = await self._fetch_one("SELECT value FROM settings WHERE key = ?", (key,))
+        return row["value"] if row else default
+
+    async def set_setting(self, key: str, value: str):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (key, value),
+            )
+            await db.commit()
+
+    async def get_check_interval(self) -> int:
+        val = await self.get_setting("check_interval_minutes", "1")
+        try:
+            return max(1, int(val))
+        except (ValueError, TypeError):
+            return 1
+
+    async def set_check_interval(self, minutes: int):
+        await self.set_setting("check_interval_minutes", str(max(1, minutes)))

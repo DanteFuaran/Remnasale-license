@@ -8,3 +8,4 @@ services:
       - "${API_PORT:-8080}:8080"
     volumes:
       - ./data:/data
+      - /opt/remnasale-setup:/setup:ro
