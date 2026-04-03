@@ -242,9 +242,59 @@ do_update() {
     echo -e "${GREEN}       🔁  Обновление сервера${NC}"
     echo -e "${BLUE}══════════════════════════════════════${NC}"
     echo
-    cd "$COMPOSE_DIR" || { echo -e "${RED}✖ Папка $COMPOSE_DIR не найдена${NC}"; return; }
-    ( docker compose pull >/dev/null 2>&1 && docker compose up -d >/dev/null 2>&1 ) &
-    show_spinner "Загрузка образа и перезапуск" "Обновление завершено"
+
+    local REPO_URL="https://github.com/DanteFuaran/Remnasale-license.git"
+    local TMP_DIR
+    TMP_DIR=$(mktemp -d)
+
+    (
+        git clone --depth=1 "$REPO_URL" "$TMP_DIR" >/dev/null 2>&1
+    ) &
+    show_spinner "Загрузка обновления с GitHub" "Репозиторий скачан"
+
+    if [ ! -f "$TMP_DIR/Dockerfile" ]; then
+        echo -e "${RED}✖ Не удалось скачать репозиторий${NC}"
+        rm -rf "$TMP_DIR"
+        echo -e "${DARKGRAY}Нажмите Enter для продолжения...${NC}"
+        read -r
+        return
+    fi
+
+    # Сборка нового образа
+    (
+        cd "$TMP_DIR"
+        DOCKER_BUILDKIT=1 docker build -t remnasale-license:local . >/dev/null 2>&1
+    ) &
+    show_spinner "Сборка образа" "Образ собран"
+
+    # Обновляем файлы (кроме .env и data/)
+    (
+        for f in api.py bot config.py database.py main.py requirements.txt Dockerfile docker-compose.yml version; do
+            [ -e "$TMP_DIR/$f" ] && cp -rf "$TMP_DIR/$f" "$COMPOSE_DIR/$f" 2>/dev/null || true
+        done
+        # Обновляем rl.sh и устанавливаем в /usr/local/bin
+        if [ -f "$TMP_DIR/rl.sh" ]; then
+            cp -f "$TMP_DIR/rl.sh" "$COMPOSE_DIR/rl.sh"
+            chmod +x "$COMPOSE_DIR/rl.sh"
+            cp -f "$TMP_DIR/rl.sh" /usr/local/bin/rl
+            chmod +x /usr/local/bin/rl
+        fi
+    ) &
+    show_spinner "Обновление файлов" "Файлы обновлены"
+
+    # Перезапускаем контейнер с новым образом
+    (
+        cd "$COMPOSE_DIR"
+        docker compose up -d --force-recreate >/dev/null 2>&1
+    ) &
+    show_spinner "Перезапуск контейнера" "Сервер обновлён"
+
+    rm -rf "$TMP_DIR"
+
+    local NEW_VER
+    NEW_VER=$(grep '^version:' "$COMPOSE_DIR/version" 2>/dev/null | awk '{print $2}' | tr -d '\n' || echo "?")
+    echo
+    echo -e "${GREEN}✅ Обновление завершено — версия: ${WHITE}v${NEW_VER}${NC}"
     echo
     echo -e "${DARKGRAY}Нажмите Enter для продолжения...${NC}"
     read -r
@@ -286,9 +336,35 @@ do_delete() {
     fi
 }
 
+_get_local_version() {
+    grep '^version:' "$COMPOSE_DIR/version" 2>/dev/null | awk '{print $2}' | tr -d '\n' || echo ""
+}
+
+_get_remote_version() {
+    curl -sf --max-time 5 \
+        "https://raw.githubusercontent.com/DanteFuaran/Remnasale-license/main/version" \
+        2>/dev/null | grep '^version:' | awk '{print $2}' | tr -d '\n' || echo ""
+}
+
+_version_gt() {
+    # returns 0 if $1 > $2
+    local a="$1" b="$2"
+    [ "$(printf '%s\n%s' "$a" "$b" | sort -V | tail -1)" = "$a" ] && [ "$a" != "$b" ]
+}
+
 main_menu() {
     if ! [ -t 0 ]; then
         exit 0
+    fi
+
+    # Проверяем версию один раз при входе в меню
+    local _LOCAL_VER _REMOTE_VER _UPDATE_AVAILABLE
+    _LOCAL_VER=$(_get_local_version)
+    _REMOTE_VER=$(_get_remote_version)
+    if [ -n "$_REMOTE_VER" ] && _version_gt "$_REMOTE_VER" "$_LOCAL_VER"; then
+        _UPDATE_AVAILABLE=1
+    else
+        _UPDATE_AVAILABLE=0
     fi
 
     while true; do
@@ -303,14 +379,21 @@ main_menu() {
             status_text="${RED}Остановлен${NC}"
         fi
 
-        local menu_title="⚖️  Remnasale License\n   Статус: ${status_dot} ${status_text}"
+        local _ver_label=""
+        [ -n "$_LOCAL_VER" ] && _ver_label=" v${_LOCAL_VER}"
+        local menu_title="⚖️  Remnasale License${_ver_label}\n   Статус: ${status_dot} ${status_text}"
+
+        local update_label="🔁  Обновить"
+        if [ "$_UPDATE_AVAILABLE" -eq 1 ]; then
+            update_label="🔁  Обновить ${YELLOW}(Доступно обновление до v${_REMOTE_VER})${NC}"
+        fi
 
         local -a items=(
             "🔄  Перезапустить"
             "▶️   Запустить"
             "⏹️   Остановить"
             "📜  Логи"
-            "🔁  Обновить"
+            "$update_label"
             "──────────────────────────────────────"
             "🗑️   Удалить"
             "──────────────────────────────────────"
@@ -327,7 +410,17 @@ main_menu() {
             1) do_start ;;
             2) do_stop ;;
             3) do_logs ;;
-            4) do_update ;;
+            4)
+                do_update
+                # После обновления пересчитываем версии
+                _LOCAL_VER=$(_get_local_version)
+                _REMOTE_VER=$(_get_remote_version)
+                if [ -n "$_REMOTE_VER" ] && _version_gt "$_REMOTE_VER" "$_LOCAL_VER"; then
+                    _UPDATE_AVAILABLE=1
+                else
+                    _UPDATE_AVAILABLE=0
+                fi
+                ;;
             6) do_delete ;;
             8|255) clear; exit 0 ;;
         esac
