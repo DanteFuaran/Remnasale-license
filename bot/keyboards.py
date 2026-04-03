@@ -60,7 +60,7 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
 
     row1 = [
         InlineKeyboardButton(text="🔄 Продлить", callback_data=f"ext:{sid}"),
-        InlineKeyboardButton(text="🔓 Сбросить IP", callback_data=f"rip:{sid}"),
+        InlineKeyboardButton(text="🔓 Сбросить домен", callback_data=f"rip:{sid}"),
     ]
 
     toggle_text = "⏸ Приостановить" if is_active else "▶️ Возобновить"

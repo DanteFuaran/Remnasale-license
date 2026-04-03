@@ -26,7 +26,7 @@ class LicenseDB:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
                     license_key TEXT UNIQUE NOT NULL,
-                    server_ip TEXT DEFAULT '',
+                    server_domain TEXT DEFAULT '',
                     period TEXT NOT NULL DEFAULT '1m',
                     is_active INTEGER DEFAULT 1,
                     created_at TEXT NOT NULL,
@@ -34,6 +34,11 @@ class LicenseDB:
                     last_check_at TEXT
                 )
             """)
+            # Миграция: переименование server_ip -> server_domain
+            cursor = await db.execute("PRAGMA table_info(servers)")
+            columns = [row[1] for row in await cursor.fetchall()]
+            if "server_ip" in columns and "server_domain" not in columns:
+                await db.execute("ALTER TABLE servers RENAME COLUMN server_ip TO server_domain")
             await db.commit()
 
     async def _fetch_one(self, query: str, params: tuple = ()) -> Optional[dict]:
@@ -121,9 +126,9 @@ class LicenseDB:
             await db.commit()
         return await self.get_server(server_id)
 
-    async def reset_ip(self, server_id: int) -> Optional[dict]:
+    async def reset_domain(self, server_id: int) -> Optional[dict]:
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE servers SET server_ip = '' WHERE id = ?", (server_id,))
+            await db.execute("UPDATE servers SET server_domain = '' WHERE id = ?", (server_id,))
             await db.commit()
         return await self.get_server(server_id)
 
@@ -133,7 +138,7 @@ class LicenseDB:
             await db.commit()
         return await self.get_server(server_id)
 
-    async def verify_license(self, key: str, server_ip: str) -> dict:
+    async def verify_license(self, key: str, server_domain: str) -> dict:
         server = await self.get_server_by_key(key)
 
         if not server:
@@ -149,14 +154,14 @@ class LicenseDB:
             if datetime.now(timezone.utc) > expires:
                 return {"valid": False, "reason": "expired"}
 
-        if server_ip:
-            if server["server_ip"] and server["server_ip"] != server_ip:
-                return {"valid": False, "reason": "ip_mismatch"}
-            if not server["server_ip"]:
+        if server_domain:
+            if server["server_domain"] and server["server_domain"] != server_domain:
+                return {"valid": False, "reason": "domain_mismatch"}
+            if not server["server_domain"]:
                 async with aiosqlite.connect(self.path) as db:
                     await db.execute(
-                        "UPDATE servers SET server_ip = ? WHERE id = ?",
-                        (server_ip, server["id"]),
+                        "UPDATE servers SET server_domain = ? WHERE id = ?",
+                        (server_domain, server["id"]),
                     )
                     await db.commit()
 

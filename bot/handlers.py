@@ -36,7 +36,7 @@ def format_date(iso_str: str | None) -> str:
 
 def format_server(server: dict) -> str:
     emoji, status_text = server_status(server)
-    ip = server["server_ip"] or "Не привязан"
+    domain = server["server_domain"] or "Не привязан"
     expires = "♾ Бессрочно" if not server["expires_at"] else format_date(server["expires_at"])
     last_check = format_date(server["last_check_at"])
 
@@ -52,7 +52,7 @@ def format_server(server: dict) -> str:
     return (
         f"📊 <b>{server['name']}</b>\n\n"
         f"🔑 Ключ:\n<code>{server['license_key']}</code>\n\n"
-        f"🌐 IP: <code>{ip}</code>\n"
+        f"🌐 Домен: <code>{domain}</code>\n"
         f"📅 Создан: {format_date(server['created_at'])}\n"
         f"⏰ Действует до: {expires}\n"
         f"📊 Статус: {emoji} {status_text}\n"
@@ -187,19 +187,19 @@ async def cb_toggle(callback: CallbackQuery, db: LicenseDB):
     await callback.answer()
 
 
-# === RESET IP ===
+# === RESET DOMAIN ===
 
 @router.callback_query(F.data.startswith("rip:"))
-async def cb_reset_ip(callback: CallbackQuery, db: LicenseDB):
+async def cb_reset_domain(callback: CallbackQuery, db: LicenseDB):
     if callback.from_user.id != BOT_ADMIN_ID:
         return
     server_id = int(callback.data.split(":")[1])
-    server = await db.reset_ip(server_id)
+    server = await db.reset_domain(server_id)
     if not server:
         await callback.answer("Сервер не найден", show_alert=True)
         return
     await callback.message.edit_text(
-        f"🔓 IP сброшен\n\n{format_server(server)}",
+        f"🔓 Домен сброшен\n\n{format_server(server)}",
         reply_markup=server_detail_kb(server),
     )
     await callback.answer()

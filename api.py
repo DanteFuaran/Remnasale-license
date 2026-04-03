@@ -14,12 +14,12 @@ async def handle_verify(request: web.Request) -> web.Response:
         return web.json_response({"valid": False, "reason": "invalid_body"}, status=400)
 
     license_key = data.get("license_key", "").strip()
-    server_ip = data.get("server_ip", "").strip()
+    server_domain = data.get("server_domain", "").strip()
 
     if not license_key:
         return web.json_response({"valid": False, "reason": "missing_key"}, status=400)
 
-    result = await db.verify_license(license_key, server_ip)
+    result = await db.verify_license(license_key, server_domain)
 
     if result.get("valid") and GITHUB_PAT:
         result["token"] = GITHUB_PAT

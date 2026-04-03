@@ -9,11 +9,10 @@ Telegram-бот + REST API для выдачи, продления и отзыв
 ## 🚀 Установка
 
 ```bash
-git clone https://github.com/DanteFuaran/Remnasale-license.git /opt/remnasale-license
-cd /opt/remnasale-license
-cp .env.example .env
-# Заполнить .env (см. ниже)
-docker compose up -d
+cd /opt && bash <(curl -s https://raw.githubusercontent.com/DanteFuaran/Remnasale-license/main/install.sh)
+```
+
+Скрипт запросит токен бота, Telegram ID, GitHub PAT, домен сервера и порт API, после чего автоматически развернёт контейнер.
 ```
 
 ---
@@ -49,7 +48,7 @@ docker compose up -d
 { "valid": false, "reason": "suspended" }
 ```
 
-Возможные причины отказа: `not_found`, `suspended`, `expired`, `ip_mismatch`.
+Возможные причины отказа: `not_found`, `suspended`, `expired`, `domain_mismatch`.
 
 ### `GET /api/v1/install/script?key=<license_key>`
 
@@ -71,7 +70,7 @@ docker compose up -d
 - **Просмотр сервера** — ключ, IP, статус, срок действия, последняя проверка
 - **Продлить** — добавить период к текущему сроку
 - **Приостановить / Возобновить** — немедленно блокирует/разблокирует лицензию
-- **Сбросить IP** — позволяет переустановить бот на другой сервер
+- **Сбросить домен** — позволяет переустановить бот на другой сервер (домен привяжется заново при следующей проверке)
 - **Переименовать** — задать удобное имя серверу
 - **Удалить** — безвозвратно удалить лицензию
 
