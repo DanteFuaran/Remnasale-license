@@ -66,9 +66,6 @@ async def handle_verify(request: web.Request) -> web.Response:
 
     result = await db.verify_license(license_key, server_ip)
 
-    if result.get("valid") and GITHUB_PAT:
-        result["token"] = GITHUB_PAT
-
     check_interval = await db.get_check_interval()
     result["check_interval"] = check_interval
 
@@ -158,9 +155,49 @@ async def handle_download(request: web.Request) -> web.Response:
         return web.Response(status=502, text="Download proxy error")
 
 
+async def handle_install_script(request: web.Request) -> web.Response:
+    """Serve the install script from GitHub so clients don't need a PAT."""
+    db = request.app["db"]
+    key = request.query.get("key", "").strip()
+
+    if not key:
+        return web.Response(status=401, text="Missing license key")
+
+    result = await db.check_key_valid(key)
+    if not result["valid"]:
+        return web.json_response({"error": result.get("reason", "invalid")}, status=403)
+
+    if not GITHUB_PAT or not GITHUB_REPO:
+        return web.json_response({"error": "not configured"}, status=503)
+
+    url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{_GITHUB_BRANCH}/remnasale-install.sh"
+    headers = {
+        "Authorization": f"token {GITHUB_PAT}",
+        "Accept": "application/vnd.github.v3.raw",
+    }
+
+    try:
+        timeout = ClientTimeout(total=30)
+        async with ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers=headers) as upstream:
+                if upstream.status != 200:
+                    logger.warning(f"[install-script] GitHub returned {upstream.status}")
+                    return web.Response(status=502, text="Failed to fetch install script")
+                script = await upstream.text()
+                return web.Response(
+                    text=script,
+                    content_type="text/plain",
+                    headers={"Cache-Control": "no-cache"},
+                )
+    except Exception as e:
+        logger.error(f"[install-script] Error: {e}")
+        return web.Response(status=502, text="Failed to fetch install script")
+
+
 def setup_routes(app: web.Application):
     app.router.add_post("/api/v1/license/verify", handle_verify)
     app.router.add_post("/api/v1/license/release", handle_release)
     app.router.add_get("/api/v1/version", handle_version)
     app.router.add_get("/api/v1/download", handle_download)
+    app.router.add_get("/api/v1/install/script", handle_install_script)
     app.router.add_get("/health", handle_health)
