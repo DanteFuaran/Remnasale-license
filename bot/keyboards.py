@@ -75,6 +75,31 @@ def period_kb(prefix: str = "ap", back_cb: str = "clients") -> InlineKeyboardMar
     ])
 
 
+def add_period_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="1 месяц",    callback_data="ap:1m"),
+            InlineKeyboardButton(text="3 месяца",   callback_data="ap:3m"),
+        ],
+        [
+            InlineKeyboardButton(text="6 месяцев",  callback_data="ap:6m"),
+            InlineKeyboardButton(text="12 месяцев", callback_data="ap:12m"),
+        ],
+        [
+            InlineKeyboardButton(text="♾", callback_data="ap:unlimited"),
+        ],
+        [
+            InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_add"),
+        ],
+    ])
+
+
+def cancel_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_add")],
+    ])
+
+
 def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
     sid = server["id"]
     is_active = server["is_active"]
@@ -90,6 +115,7 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
         ],
         [InlineKeyboardButton(text="✏️ Переименовать", callback_data=f"ren:{sid}")],
         [InlineKeyboardButton(text="🔓 Сбросить IP",  callback_data=f"rip:{sid}")],
+        [InlineKeyboardButton(text="✉️ Отправить сообщение", callback_data=f"msg:{sid}")],
         [
             InlineKeyboardButton(text=blk_text,       callback_data=f"blk:{sid}"),
             InlineKeyboardButton(text="🗑 Удалить",    callback_data=f"del:{sid}"),

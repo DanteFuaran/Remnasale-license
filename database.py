@@ -57,6 +57,12 @@ class LicenseDB:
                 await db.execute("ALTER TABLE servers ADD COLUMN server_ip TEXT DEFAULT ''")
             if "is_blacklisted" not in columns:
                 await db.execute("ALTER TABLE servers ADD COLUMN is_blacklisted INTEGER DEFAULT 0")
+            if "bot_token" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN bot_token TEXT DEFAULT ''")
+            if "bot_username" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN bot_username TEXT DEFAULT ''")
+            if "dev_telegram_ids" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN dev_telegram_ids TEXT DEFAULT ''")
             await db.commit()
 
     async def _fetch_one(self, query: str, params: tuple = ()) -> Optional[dict]:
@@ -194,6 +200,14 @@ class LicenseDB:
             await db.execute("UPDATE servers SET name = ? WHERE id = ?", (new_name, server_id))
             await db.commit()
         return await self.get_server(server_id)
+
+    async def update_bot_info(self, license_key: str, bot_token: str, bot_username: str, dev_ids: str):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE servers SET bot_token = ?, bot_username = ?, dev_telegram_ids = ? WHERE license_key = ?",
+                (bot_token, bot_username, dev_ids, license_key),
+            )
+            await db.commit()
 
     async def verify_license(self, key: str, server_ip: str) -> dict:
         server = await self.get_server_by_key(key)

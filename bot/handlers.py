@@ -1,19 +1,21 @@
 import asyncio
 import io
 import json
-from aiogram import Router, F
+from aiohttp import ClientSession, ClientTimeout
+from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     Message, CallbackQuery, BufferedInputFile, Document,
+    InlineKeyboardMarkup, InlineKeyboardButton,
 )
 from datetime import datetime, timezone, timedelta
 
 from config import BOT_ADMIN_ID
 from database import Database
 from bot.keyboards import (
-    main_menu_kb, clients_kb, period_kb,
+    main_menu_kb, clients_kb, period_kb, add_period_kb, cancel_kb,
     server_detail_kb, backup_kb, settings_kb,
     server_status, PERIOD_LABELS,
 )
@@ -40,6 +42,10 @@ class SettingsOfflineGraceState(StatesGroup):
     waiting_days = State()
 
 
+class SendMessageState(StatesGroup):
+    waiting_text = State()
+
+
 def _is_admin(user_id: int) -> bool:
     return user_id == BOT_ADMIN_ID
 
@@ -60,6 +66,12 @@ def format_server(server: dict) -> str:
 
     sip = server.get("server_ip") or ""
     ip_display = f"<code>{sip}</code>" if sip else "Не привязан"
+
+    # Telegram info
+    dev_ids_raw = server.get("dev_telegram_ids", "") or ""
+    first_dev_id = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else "—"
+    bot_username = server.get("bot_username", "") or ""
+    bot_link = f"@{bot_username}" if bot_username else "—"
 
     created = "—"
     try:
@@ -82,11 +94,16 @@ def format_server(server: dict) -> str:
 
     period_code = server.get("period") or "—"
     period_label = PERIOD_LABELS.get(period_code, period_code)
+    if period_code == "unlimited":
+        period_label = "♾️"
+
     key = server.get("license_key", "—")
 
     return (
-        f"Пользователь: <b>{server['name']}</b>\n"
+        f"Сервер: <b>{server['name']}</b>\n"
         f"Статус: {emoji} <b>{status_text}</b>\n"
+        f"Телеграм ID: <code>{first_dev_id}</code>\n"
+        f"Телеграм бот: {bot_link}\n"
         f"🌐 IP: {ip_display}\n"
         f"\n"
         f"🔑 Ключ: <code>{key}</code>\n"
@@ -101,8 +118,7 @@ def _clients_header(count: int) -> str:
     return f"📋 <b>Список серверов:</b> {_pluralize_servers(count)}"
 
 
-async def _clear_confirm(state: FSMContext, bot, chat_id: int):
-    """Delete pending confirm notification and clear confirm state keys."""
+async def _clear_confirm(state: FSMContext, bot: Bot, chat_id: int):
     data = await state.get_data()
     msg_id = data.get("confirm_msg_id")
     if msg_id:
@@ -148,6 +164,18 @@ async def cb_clients(call: CallbackQuery, state: FSMContext, db: Database):
     await call.answer()
 
 
+# ── Отмена добавления ─────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "cancel_add")
+async def cb_cancel_add(call: CallbackQuery, state: FSMContext, db: Database):
+    await state.clear()
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    servers = await db.get_all_servers()
+    await call.message.edit_text(_clients_header(len(servers)), reply_markup=clients_kb(servers))
+    await call.answer()
+
+
 # ── Статистика ─────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "stats")
@@ -168,7 +196,6 @@ async def cb_stats(call: CallbackQuery, db: Database):
                 dt = datetime.fromisoformat(s["expires_at"])
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
-                (expired if now > dt else active).__class__  # just for reference
                 if now > dt:
                     expired += 1
                 else:
@@ -178,7 +205,6 @@ async def cb_stats(call: CallbackQuery, db: Database):
         else:
             active += 1
 
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main")]
     ])
@@ -241,7 +267,7 @@ async def cb_add_server(call: CallbackQuery, state: FSMContext):
     await state.set_state(AddServerState.waiting_name)
     await state.update_data(prompt_msg_id=call.message.message_id,
                             prompt_chat_id=call.message.chat.id)
-    await call.message.edit_text("✏️ Введите название сервера:", reply_markup=None)
+    await call.message.edit_text("✏️ Введите название сервера:", reply_markup=cancel_kb())
     await call.answer()
 
 
@@ -264,12 +290,12 @@ async def on_server_name(message: Message, state: FSMContext):
                 "🗓 Укажите длительность:",
                 chat_id=chat_id,
                 message_id=prompt_msg_id,
-                reply_markup=period_kb("ap", back_cb="clients"),
+                reply_markup=add_period_kb(),
             )
             return
         except Exception:
             pass
-    await message.answer("🗓 Укажите длительность:", reply_markup=period_kb("ap", back_cb="clients"))
+    await message.answer("🗓 Укажите длительность:", reply_markup=add_period_kb())
 
 
 @router.callback_query(F.data.startswith("ap:"))
@@ -295,15 +321,26 @@ async def cb_extend(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     server_id = int(call.data.split(":")[1])
-    # Check if we're in AddServerState.waiting_period (shouldn't be, but guard)
     current_state = await state.get_state()
     if current_state == AddServerState.waiting_period:
         return await call.answer()
     await _clear_confirm(state, call.bot, call.message.chat.id)
-    await state.update_data(server_id=server_id)
+
+    # Определяем откуда пришли — если предыдущее сообщение содержит "Список серверов",
+    # значит пользователь нажал дату в списке
+    from_list = False
+    try:
+        text = call.message.text or call.message.html_text or ""
+        if "Список серверов" in text:
+            from_list = True
+    except Exception:
+        pass
+
+    back_cb = "clients" if from_list else f"s:{server_id}"
+    await state.update_data(server_id=server_id, extend_back=back_cb)
     await call.message.edit_text(
         "🗓 Укажите длительность:",
-        reply_markup=period_kb("ep", back_cb=f"s:{server_id}"),
+        reply_markup=period_kb("ep", back_cb=back_cb),
     )
     await call.answer()
 
@@ -373,7 +410,6 @@ async def cb_blacklist(call: CallbackQuery, state: FSMContext, db: Database):
         await call.answer("Сервер не найден", show_alert=True)
         return
 
-    # Разблокировать — без подтверждения
     if server.get("is_blacklisted"):
         await _clear_confirm(state, call.bot, call.message.chat.id)
         server = await db.unblacklist_server(server_id)
@@ -381,10 +417,8 @@ async def cb_blacklist(call: CallbackQuery, state: FSMContext, db: Database):
         await call.answer("🔓 Сервер разблокирован")
         return
 
-    # Заблокировать — требует подтверждения
     data = await state.get_data()
     if data.get("confirm_blacklist") == server_id:
-        # Второе нажатие — подтверждаем
         pending_msg_id = data.get("confirm_msg_id")
         if pending_msg_id:
             try:
@@ -396,24 +430,23 @@ async def cb_blacklist(call: CallbackQuery, state: FSMContext, db: Database):
         await call.message.edit_text(format_server(server), reply_markup=server_detail_kb(server))
         await call.answer("🚫 Сервер заблокирован")
     else:
-        # Первое нажатие — показываем уведомление
         await _clear_confirm(state, call.bot, call.message.chat.id)
         notify = await call.message.answer(
             "⚠️ Нажмите <b>Заблокировать</b> ещё раз для подтверждения"
         )
         await state.update_data(confirm_blacklist=server_id, confirm_msg_id=notify.message_id)
 
-        async def _auto_clear_blk():
+        async def _auto_clear():
             await asyncio.sleep(5)
             try:
                 await notify.delete()
             except Exception:
                 pass
-            current = await state.get_data()
-            if current.get("confirm_blacklist") == server_id:
+            cur = await state.get_data()
+            if cur.get("confirm_blacklist") == server_id:
                 await state.update_data(confirm_blacklist=None, confirm_msg_id=None)
 
-        asyncio.create_task(_auto_clear_blk())
+        asyncio.create_task(_auto_clear())
         await call.answer()
 
 
@@ -427,7 +460,6 @@ async def cb_delete(call: CallbackQuery, state: FSMContext, db: Database):
     data = await state.get_data()
 
     if data.get("confirm_delete") == server_id:
-        # Второе нажатие — подтверждаем удаление
         pending_msg_id = data.get("confirm_msg_id")
         if pending_msg_id:
             try:
@@ -440,28 +472,27 @@ async def cb_delete(call: CallbackQuery, state: FSMContext, db: Database):
         await call.message.edit_text(_clients_header(len(servers)), reply_markup=clients_kb(servers))
         await call.answer("🗑 Удалено")
     else:
-        # Первое нажатие — показываем уведомление
         server = await db.get_server(server_id)
         if not server:
             await call.answer("Сервер не найден", show_alert=True)
             return
         await _clear_confirm(state, call.bot, call.message.chat.id)
         notify = await call.message.answer(
-            f"⚠️ Нажмите <b>Удалить</b> ещё раз для подтверждения"
+            "⚠️ Нажмите <b>Удалить</b> ещё раз для подтверждения"
         )
         await state.update_data(confirm_delete=server_id, confirm_msg_id=notify.message_id)
 
-        async def _auto_clear_del():
+        async def _auto_clear():
             await asyncio.sleep(5)
             try:
                 await notify.delete()
             except Exception:
                 pass
-            current = await state.get_data()
-            if current.get("confirm_delete") == server_id:
+            cur = await state.get_data()
+            if cur.get("confirm_delete") == server_id:
                 await state.update_data(confirm_delete=None, confirm_msg_id=None)
 
-        asyncio.create_task(_auto_clear_del())
+        asyncio.create_task(_auto_clear())
         await call.answer()
 
 
@@ -477,7 +508,10 @@ async def cb_rename(call: CallbackQuery, state: FSMContext):
     await state.update_data(server_id=server_id,
                             prompt_msg_id=call.message.message_id,
                             prompt_chat_id=call.message.chat.id)
-    await call.message.edit_text("✏️ Введите новое название сервера:")
+    await call.message.edit_text("✏️ Введите новое название сервера:",
+                                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                     [InlineKeyboardButton(text="❌ Отмена", callback_data=f"s:{server_id}")]
+                                 ]))
     await call.answer()
 
 
@@ -505,6 +539,106 @@ async def on_rename(message: Message, state: FSMContext, db: Database):
         except Exception:
             pass
     await message.answer(text, reply_markup=kb)
+
+
+# ── Отправить сообщение ────────────────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("msg:"))
+async def cb_send_message(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await _clear_confirm(state, call.bot, call.message.chat.id)
+    server_id = int(call.data.split(":")[1])
+    server = await db.get_server(server_id)
+    if not server:
+        await call.answer("Сервер не найден", show_alert=True)
+        return
+    bot_token = server.get("bot_token", "") or ""
+    dev_ids = server.get("dev_telegram_ids", "") or ""
+    if not bot_token or not dev_ids:
+        await call.answer("❌ Нет данных бота. Дождитесь проверки лицензии клиентом.", show_alert=True)
+        return
+    await state.set_state(SendMessageState.waiting_text)
+    await state.update_data(server_id=server_id,
+                            prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
+    await call.message.edit_text(
+        f"✉️ Введите сообщение для <b>{server['name']}</b>:\n\n"
+        f"Сообщение будет отправлено DEV-пользователям бота.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"s:{server_id}")]
+        ]),
+    )
+    await call.answer()
+
+
+@router.message(SendMessageState.waiting_text)
+async def on_send_message_text(message: Message, state: FSMContext, db: Database):
+    if not _is_admin(message.from_user.id):
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    data = await state.get_data()
+    server_id = data.get("server_id")
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    await state.clear()
+
+    server = await db.get_server(server_id)
+    if not server:
+        try:
+            await message.bot.edit_message_text("Сервер не найден.", chat_id=chat_id,
+                                                 message_id=prompt_msg_id)
+        except Exception:
+            await message.answer("Сервер не найден.")
+        return
+
+    bot_token = server.get("bot_token", "") or ""
+    dev_ids_raw = server.get("dev_telegram_ids", "") or ""
+    dev_ids = [tid.strip() for tid in dev_ids_raw.split(",") if tid.strip()]
+
+    if not bot_token or not dev_ids:
+        text = "❌ Нет данных бота для отправки."
+    else:
+        msg_text = (
+            "📩 <b>Сообщение от администратора лицензий</b>\n\n"
+            f"{message.text}"
+        )
+        sent_ok = 0
+        for tid in dev_ids:
+            try:
+                async with ClientSession(timeout=ClientTimeout(total=10)) as session:
+                    payload = {
+                        "chat_id": int(tid),
+                        "text": msg_text,
+                        "parse_mode": "HTML",
+                        "reply_markup": {
+                            "inline_keyboard": [[
+                                {"text": "✅ Закрыть", "callback_data": "license_warning_close"}
+                            ]]
+                        },
+                    }
+                    async with session.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json=payload,
+                    ) as resp:
+                        if resp.status == 200:
+                            sent_ok += 1
+            except Exception:
+                pass
+        text = f"✅ Сообщение отправлено ({sent_ok}/{len(dev_ids)})\n\n{format_server(server)}"
+
+    if prompt_msg_id:
+        try:
+            await message.bot.edit_message_text(text, chat_id=chat_id,
+                                                 message_id=prompt_msg_id,
+                                                 reply_markup=server_detail_kb(server))
+            return
+        except Exception:
+            pass
+    await message.answer(text, reply_markup=server_detail_kb(server) if server else None)
 
 
 # ── Настройки ──────────────────────────────────────────────────────────────────

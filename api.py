@@ -232,9 +232,33 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
     return web.json_response({"success": True})
 
 
+async def handle_report(request: web.Request) -> web.Response:
+    db = request.app["db"]
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "reason": "invalid_body"}, status=400)
+
+    license_key = data.get("license_key", "").strip()
+    bot_token = data.get("bot_token", "").strip()
+    bot_username = data.get("bot_username", "").strip()
+    dev_ids = data.get("dev_ids", "").strip()
+
+    if not license_key:
+        return web.json_response({"success": False, "reason": "missing_key"}, status=400)
+
+    server = await db.get_server_by_key(license_key)
+    if not server:
+        return web.json_response({"success": False, "reason": "not_found"}, status=404)
+
+    await db.update_bot_info(license_key, bot_token, bot_username, dev_ids)
+    return web.json_response({"success": True})
+
+
 def setup_routes(app: web.Application):
     app.router.add_post("/api/v1/license/verify", handle_verify)
     app.router.add_post("/api/v1/license/release", handle_release)
+    app.router.add_post("/api/v1/license/report", handle_report)
     app.router.add_post("/api/v1/notify/offline", handle_notify_offline)
     app.router.add_get("/api/v1/version", handle_version)
     app.router.add_get("/api/v1/download", handle_download)
