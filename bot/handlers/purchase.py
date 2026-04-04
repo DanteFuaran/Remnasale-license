@@ -15,6 +15,7 @@ from aiogram.types import (
 from config import BOT_ADMIN_ID, PUBLIC_URL
 from database import Database, GATEWAY_TYPES
 from bot.states import PurchaseState
+from bot.keyboards.user import user_main_menu_kb
 from bot.keyboards.purchase import (
     PRODUCTS, PURCHASE_DURATIONS, _format_price,
     product_selection_kb, purchase_duration_kb, payment_method_kb,
@@ -28,23 +29,27 @@ router = Router()
 STARS_RATE = 2
 
 
-def _order_summary_text(selected: set[str], duration: str | None = None) -> str:
-    lines = ["🛒 <b>Добавить сервер</b>\n"]
+_SELECTION_TEXT = (
+    "🛒 <b>Покупка ключа</b>\n\n"
+    "• <b>Remnasale</b> — Телеграм бот для продажи и управления подписками.\n"
+    "• <b>Remnasup</b> — Телеграм бот для поддержки пользователей.\n\n"
+    "Выберите продукты:"
+)
+
+
+def _duration_text(selected: set[str]) -> str:
+    lines = ["🛒 <b>Покупка ключа</b>\n", "<b>Активируемые приложения:</b>"]
     total_monthly = 0
-    for key in selected:
-        p = PRODUCTS[key]
-        total_monthly += p["price"]
-        lines.append(f"  {p['emoji']} {p['name']} — {_format_price(p['price'])} ₽/мес")
-
-    if duration and duration in PURCHASE_DURATIONS:
-        dur = PURCHASE_DURATIONS[duration]
-        months = dur["months"]
-        total = total_monthly * months
-        lines.append(f"\n🗓 Длительность: {dur['label']}")
-        lines.append(f"💰 Итого: <b>{_format_price(total)} ₽</b>")
-    else:
-        lines.append(f"\n💰 Итого: <b>{_format_price(total_monthly)} ₽/мес</b>")
-
+    total_unlimited = 0
+    for key, p in PRODUCTS.items():
+        if key not in selected:
+            continue
+        total_monthly += p["price_monthly"]
+        total_unlimited += p["price"]
+        lines.append(f"• {p['emoji']} {p['name']} — {_format_price(p['price_monthly'])} ₽/мес")
+    lines.append(f"\n💰 Итого: <b>{_format_price(total_monthly)} ₽/мес</b>")
+    lines.append(f"♾️ Безлимит: <b>{_format_price(total_unlimited)} ₽</b> (единоразово)\n")
+    lines.append("Выберите длительность:")
     return "\n".join(lines)
 
 
@@ -55,12 +60,28 @@ async def cb_purchase_start(call: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.set_state(PurchaseState.selecting_products)
     await state.update_data(selected_products=[])
+    await call.message.edit_text(_SELECTION_TEXT, reply_markup=product_selection_kb(set()))
+    await call.answer()
 
-    text = (
-        "🛒 <b>Добавить сервер</b>\n\n"
-        "Выберите продукты:"
+
+@router.callback_query(F.data == "purchase_cancel")
+async def cb_purchase_cancel(call: CallbackQuery, state: FSMContext, db: Database):
+    await state.clear()
+    support = await db.get_setting("support_url")
+    community = await db.get_setting("community_url")
+    await call.message.edit_text(
+        "🏠 <b>Главное меню</b>",
+        reply_markup=user_main_menu_kb(support, community),
     )
-    await call.message.edit_text(text, reply_markup=product_selection_kb(set()))
+    await call.answer()
+
+
+@router.callback_query(F.data == "purchase_back_products")
+async def cb_purchase_back_products(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    selected = set(data.get("selected_products", []))
+    await state.set_state(PurchaseState.selecting_products)
+    await call.message.edit_text(_SELECTION_TEXT, reply_markup=product_selection_kb(selected))
     await call.answer()
 
 
@@ -81,13 +102,7 @@ async def cb_product_toggle(call: CallbackQuery, state: FSMContext):
         selected.add(product_key)
 
     await state.update_data(selected_products=list(selected))
-
-    if selected:
-        text = _order_summary_text(selected)
-    else:
-        text = "🛒 <b>Добавить сервер</b>\n\nВыберите продукты:"
-
-    await call.message.edit_text(text, reply_markup=product_selection_kb(selected))
+    await call.message.edit_text(_SELECTION_TEXT, reply_markup=product_selection_kb(selected))
     await call.answer()
 
 
@@ -101,8 +116,7 @@ async def cb_purchase_next_duration(call: CallbackQuery, state: FSMContext):
         return await call.answer("Выберите хотя бы один продукт", show_alert=True)
 
     await state.set_state(PurchaseState.selecting_duration)
-    text = _order_summary_text(selected) + "\n\nВыберите длительность:"
-    await call.message.edit_text(text, reply_markup=purchase_duration_kb())
+    await call.message.edit_text(_duration_text(selected), reply_markup=purchase_duration_kb())
     await call.answer()
 
 
@@ -113,6 +127,7 @@ async def cb_purchase_duration(call: CallbackQuery, state: FSMContext, db: Datab
     duration_key = call.data.split(":")[1]
     if duration_key not in PURCHASE_DURATIONS:
         return await call.answer("❌ Неизвестная длительность", show_alert=True)
+    dur = PURCHASE_DURATIONS[duration_key]
 
     data = await state.get_data()
     selected = set(data.get("selected_products", []))
@@ -126,7 +141,19 @@ async def cb_purchase_duration(call: CallbackQuery, state: FSMContext, db: Datab
         await call.answer("❌ Нет доступных способов оплаты. Обратитесь к администратору.", show_alert=True)
         return
 
-    text = _order_summary_text(selected, duration_key) + "\n\nВыберите способ оплаты:"
+    if duration_key == "unlimited":
+        total = sum(PRODUCTS[k]["price"] for k in selected)
+        dur_label = "Безлимит"
+    else:
+        total = sum(PRODUCTS[k]["price_monthly"] for k in selected) * dur["months"]
+        dur_label = dur["label"]
+
+    text = (
+        f"{_duration_text(selected)}\n"
+        f"🗓 Длительность: <b>{dur_label}</b>\n"
+        f"💳 К оплате: <b>{_format_price(total)} ₽</b>\n\n"
+        f"Выберите способ оплаты:"
+    )
     await call.message.edit_text(text, reply_markup=payment_method_kb(gateways))
     await call.answer()
 
@@ -148,9 +175,10 @@ async def cb_payment_method(call: CallbackQuery, state: FSMContext, db: Database
         return await call.answer("Ошибка", show_alert=True)
 
     # Вычисляем сумму
-    total_monthly = sum(PRODUCTS[k]["price"] for k in selected)
-    months = dur["months"]
-    total = total_monthly * months
+    if duration_key == "unlimited":
+        total = sum(PRODUCTS[k]["price"] for k in selected)
+    else:
+        total = sum(PRODUCTS[k]["price_monthly"] for k in selected) * dur["months"]
 
     gw = await db.get_gateway(gateway_type)
     if not gw or not gw["is_active"]:
