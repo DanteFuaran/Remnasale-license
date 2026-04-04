@@ -162,7 +162,7 @@ def user_server_kb(server: dict, support_url: str = "", community_url: str = "")
     ]
     link_row = []
     if support_url:
-        link_row.append(InlineKeyboardButton(text="🆘 Поддержка", url=f"https://t.me/{support_url}"))
+        link_row.append(InlineKeyboardButton(text="🆘 Помощь", url=f"https://t.me/{support_url}"))
     if community_url:
         link_row.append(InlineKeyboardButton(text="👥 Сообщество", url=f"https://t.me/{community_url}"))
     if link_row:
@@ -202,8 +202,8 @@ def settings_kb(support_url: str = "", community_url: str = "") -> InlineKeyboar
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Настройка синхронизации", callback_data="settings_sync")],
         [
-            InlineKeyboardButton(text=f"🆘 {support_display}", callback_data="settings_support_url"),
-            InlineKeyboardButton(text=f"👥 {community_display}", callback_data="settings_community_url"),
+            InlineKeyboardButton(text=f"🆘 Помощь: {support_display}", callback_data="settings_support_url"),
+            InlineKeyboardButton(text=f"👥 Сообщество: {community_display}", callback_data="settings_community_url"),
         ],
         [InlineKeyboardButton(text="💳 Платёжные системы", callback_data="settings_payments")],
         [InlineKeyboardButton(text="💾 Управление БД", callback_data="backup_menu")],
@@ -241,6 +241,12 @@ def payments_kb(gateways: list[dict]) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🐞 Тест", callback_data=f"gwtest:{gtype}"),
             InlineKeyboardButton(text=status, callback_data=f"gwt:{gtype}"),
         ])
+    buttons.append([
+        InlineKeyboardButton(text="🔢 Изменить позиционирование", callback_data="gw_placement"),
+    ])
+    buttons.append([
+        InlineKeyboardButton(text="💸 Валюта по умолчанию", callback_data="gw_currency"),
+    ])
     buttons.append([
         InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
         InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
@@ -281,6 +287,50 @@ def gateway_detail_kb(gw: dict, public_url: str = "") -> InlineKeyboardMarkup:
             copy_text=CopyTextButton(text=webhook_url),
         )])
 
+    buttons.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_payments", style="primary"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+CURRENCIES = ["RUB", "USD", "EUR"]
+
+CURRENCY_LABELS = {
+    "RUB": "🇷🇺 RUB — Рубль",
+    "USD": "🇺🇸 USD — Доллар",
+    "EUR": "🇪🇺 EUR — Евро",
+}
+
+
+def gateway_placement_kb(gateways: list[dict]) -> InlineKeyboardMarkup:
+    from database import GATEWAY_TYPES
+    buttons = []
+    for idx, gw in enumerate(gateways):
+        gtype = gw["type"]
+        meta = GATEWAY_TYPES.get(gtype, {})
+        label = meta.get("label", gtype)
+        row = [InlineKeyboardButton(text=f"{idx + 1}. {label}", callback_data=f"gwpos:{gtype}")]
+        if idx > 0:
+            row.insert(0, InlineKeyboardButton(text="⬆️", callback_data=f"gwup:{gtype}"))
+        if idx < len(gateways) - 1:
+            row.append(InlineKeyboardButton(text="⬇️", callback_data=f"gwdn:{gtype}"))
+        buttons.append(row)
+    buttons.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_payments", style="primary"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def gateway_currency_kb(current: str) -> InlineKeyboardMarkup:
+    buttons = []
+    for cur in CURRENCIES:
+        mark = "✅ " if cur == current else ""
+        buttons.append([InlineKeyboardButton(
+            text=f"{mark}{CURRENCY_LABELS[cur]}",
+            callback_data=f"gwcur:{cur}",
+        )])
     buttons.append([
         InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_payments", style="primary"),
         InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),

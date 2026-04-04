@@ -18,7 +18,7 @@ from bot.keyboards import (
     main_menu_kb, clients_kb, period_kb, add_period_kb, cancel_kb,
     server_detail_kb, backup_kb, settings_kb, compose_kb,
     user_servers_kb, user_server_kb, setting_edit_kb, setting_edit_pending_kb,
-    sync_kb, payments_kb, gateway_detail_kb,
+    sync_kb, payments_kb, gateway_detail_kb, gateway_placement_kb, gateway_currency_kb,
     server_status, PERIOD_LABELS,
 )
 
@@ -64,16 +64,17 @@ def _is_admin(user_id: int) -> bool:
 def format_user_server(server: dict) -> str:
     emoji, status_text = server_status(server)
 
-    name = server.get("name", "—")
+    name = server.get("name", "") or "Отсутствует"
 
     dev_ids_raw = server.get("dev_telegram_ids", "") or ""
     first_dev_id = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else ""
-    tg_id_display = first_dev_id if first_dev_id else "—"
+    tg_id_display = first_dev_id if first_dev_id else "Отсутствует"
 
     bot_username = server.get("bot_username", "") or ""
-    bot_link = f"@{bot_username}" if bot_username else "—"
+    bot_link = f"@{bot_username}" if bot_username else "Отсутствует"
 
-    remnasale_ver = server.get("remnasale_version", "") or "—"
+    remnasale_ver = server.get("remnasale_version", "") or ""
+    ver_suffix = f" {remnasale_ver}" if remnasale_ver else ""
 
     created = "—"
     try:
@@ -102,23 +103,21 @@ def format_user_server(server: dict) -> str:
     key = server.get("license_key", "—")
 
     return (
-        f"👤 <b>Мой профиль</b>\n"
+        f"👤 <b>Профиль</b>\n"
         f"<blockquote>👤 Имя: {name}\n"
         f"📱 Телеграм ID: {tg_id_display}</blockquote>\n"
         f"\n"
-        f"📦 <b>Remnasale {remnasale_ver}</b>\n"
+        f"📦 <b>Remnasale{ver_suffix}</b>\n"
         f"<blockquote>{emoji} Статус: {status_text}\n"
         f"🤖 Телеграм бот: {bot_link}</blockquote>\n"
         f"\n"
-        f"📦 <b>Support X.X.X</b>\n"
+        f"📦 <b>Support</b>\n"
         f"<blockquote>⭕ Статус: Не куплено\n"
-        f"🤖 Телеграм бот:\n"
-        f"🌐 IP: </blockquote>\n"
+        f"🤖 Телеграм бот: Отсутствует\n"
+        f"🌐 IP: Отсутствует</blockquote>\n"
         f"\n"
-        f"🔑 <b>Данные ключа</b>\n"
-        f"<blockquote>🔑 Ключ: <code>{key}</code>\n"
-        f"\n"
-        f"📅 Добавлен: {created}\n"
+        f"🔑 Ключ: <code>{key}</code>\n"
+        f"<blockquote>📅 Добавлен: {created}\n"
         f"⏳ Истекает: {expires}\n"
         f"🗓 Длительность: {period_label}</blockquote>"
     )
@@ -138,19 +137,20 @@ def _pluralize_servers(n: int) -> str:
 def format_server(server: dict) -> str:
     emoji, status_text = server_status(server)
 
-    name = server.get("name", "—")
+    name = server.get("name", "") or "Отсутствует"
 
     sip = server.get("server_ip") or ""
-    ip_display = f"<code>{sip}</code>" if sip else "—"
+    ip_display = f"<code>{sip}</code>" if sip else "Отсутствует"
 
     dev_ids_raw = server.get("dev_telegram_ids", "") or ""
     first_dev_id = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else ""
-    tg_id_display = f"<code>{first_dev_id}</code>" if first_dev_id else "—"
+    tg_id_display = f"<code>{first_dev_id}</code>" if first_dev_id else "Отсутствует"
 
     bot_username = server.get("bot_username", "") or ""
-    bot_link = f"@{bot_username}" if bot_username else "—"
+    bot_link = f"@{bot_username}" if bot_username else "Отсутствует"
 
-    remnasale_ver = server.get("remnasale_version", "") or "—"
+    remnasale_ver = server.get("remnasale_version", "") or ""
+    ver_suffix = f" {remnasale_ver}" if remnasale_ver else ""
 
     created = "—"
     try:
@@ -179,24 +179,22 @@ def format_server(server: dict) -> str:
     key = server.get("license_key", "—")
 
     return (
-        f"👤 <b>Мой профиль</b>\n"
+        f"👤 <b>Профиль</b>\n"
         f"<blockquote>👤 Имя: {name}\n"
         f"📱 Телеграм ID: {tg_id_display}</blockquote>\n"
         f"\n"
-        f"📦 <b>Remnasale {remnasale_ver}</b>\n"
+        f"📦 <b>Remnasale{ver_suffix}</b>\n"
         f"<blockquote>{emoji} Статус: {status_text}\n"
         f"🤖 Телеграм бот: {bot_link}\n"
         f"🌐 IP: {ip_display}</blockquote>\n"
         f"\n"
-        f"📦 <b>Support X.X.X</b>\n"
+        f"📦 <b>Support</b>\n"
         f"<blockquote>⭕ Статус: Не куплено\n"
-        f"🤖 Телеграм бот:\n"
-        f"🌐 IP: </blockquote>\n"
+        f"🤖 Телеграм бот: Отсутствует\n"
+        f"🌐 IP: Отсутствует</blockquote>\n"
         f"\n"
-        f"🔑 <b>Данные ключа</b>\n"
-        f"<blockquote>🔑 Ключ: <code>{key}</code>\n"
-        f"\n"
-        f"📅 Добавлен: {created}\n"
+        f"🔑 Ключ: <code>{key}</code>\n"
+        f"<blockquote>📅 Добавлен: {created}\n"
         f"⏳ Истекает: {expires}\n"
         f"🗓 Длительность: {period_label}</blockquote>"
     )
@@ -1035,9 +1033,9 @@ async def on_offline_grace_input(message: Message, state: FSMContext, db: Databa
 def _support_edit_text(current: str) -> str:
     display = current or "Не указана"
     return (
-        "🆘 <b>Настройка поддержки</b>\n\n"
-        f"<blockquote>🆘 Поддержка: {display}</blockquote>\n\n"
-        "ℹ️ <i>Введите имя бота или группы поддержки без https://t.me "
+        "🆘 <b>Настройка помощи</b>\n\n"
+        f"<blockquote>🆘 Помощь: {display}</blockquote>\n\n"
+        "ℹ️ <i>Введите имя бота или группы помощи без https://t.me "
         "(например <b>support_bot</b>).</i>"
     )
 
@@ -1352,6 +1350,79 @@ async def on_gateway_field_input(message: Message, state: FSMContext, db: Databa
         except Exception:
             pass
     await message.answer(text, reply_markup=kb)
+
+
+# ── Позиционирование шлюзов ───────────────────────────────────────────────────
+
+@router.callback_query(F.data == "gw_placement")
+async def cb_gw_placement(call: CallbackQuery, state: FSMContext, db: Database):
+    await state.clear()
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    gateways = await db.get_all_gateways()
+    await call.message.edit_text(
+        "🔢 <b>Позиционирование платёжных систем</b>\n\n"
+        "Измените порядок отображения шлюзов:",
+        reply_markup=gateway_placement_kb(gateways),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("gwup:"))
+async def cb_gw_up(call: CallbackQuery, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    gtype = call.data.split(":")[1]
+    gateways = await db.get_all_gateways()
+    types = [gw["type"] for gw in gateways]
+    idx = types.index(gtype) if gtype in types else -1
+    if idx > 0:
+        types[idx], types[idx - 1] = types[idx - 1], types[idx]
+        await db.set_gateway_order(types)
+        gateways = await db.get_all_gateways()
+    await call.message.edit_reply_markup(reply_markup=gateway_placement_kb(gateways))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("gwdn:"))
+async def cb_gw_down(call: CallbackQuery, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    gtype = call.data.split(":")[1]
+    gateways = await db.get_all_gateways()
+    types = [gw["type"] for gw in gateways]
+    idx = types.index(gtype) if gtype in types else -1
+    if 0 <= idx < len(types) - 1:
+        types[idx], types[idx + 1] = types[idx + 1], types[idx]
+        await db.set_gateway_order(types)
+        gateways = await db.get_all_gateways()
+    await call.message.edit_reply_markup(reply_markup=gateway_placement_kb(gateways))
+    await call.answer()
+
+
+# ── Валюта по умолчанию ────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "gw_currency")
+async def cb_gw_currency(call: CallbackQuery, state: FSMContext, db: Database):
+    await state.clear()
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    current = await db.get_setting("payment_currency") or "RUB"
+    await call.message.edit_text(
+        "💸 <b>Валюта по умолчанию</b>\n\nВыберите валюту:",
+        reply_markup=gateway_currency_kb(current),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("gwcur:"))
+async def cb_gw_currency_set(call: CallbackQuery, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    cur = call.data.split(":")[1]
+    await db.set_setting("payment_currency", cur)
+    await call.message.edit_reply_markup(reply_markup=gateway_currency_kb(cur))
+    await call.answer(f"✅ {cur}")
 
 
 # ── Бэкап ───────────────────────────────────────────────────────────────────────

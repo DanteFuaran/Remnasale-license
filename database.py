@@ -86,6 +86,15 @@ class LicenseDB:
                     "INSERT OR IGNORE INTO payment_gateways (type, is_active, settings) VALUES (?, 0, '{}')",
                     (gtype,),
                 )
+            # Migrate: add order_index column if missing
+            cursor2 = await db.execute("PRAGMA table_info(payment_gateways)")
+            gw_columns = [row[1] for row in await cursor2.fetchall()]
+            if "order_index" not in gw_columns:
+                await db.execute("ALTER TABLE payment_gateways ADD COLUMN order_index INTEGER DEFAULT NULL")
+            # Default currency setting
+            await db.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES ('payment_currency', 'RUB')"
+            )
             await db.commit()
 
     async def _fetch_one(self, query: str, params: tuple = ()) -> Optional[dict]:
@@ -335,7 +344,7 @@ class LicenseDB:
     # ── Платёжные шлюзы ────────────────────────────────────────────
 
     async def get_all_gateways(self) -> list[dict]:
-        rows = await self._fetch_all("SELECT * FROM payment_gateways ORDER BY type")
+        rows = await self._fetch_all("SELECT * FROM payment_gateways ORDER BY CASE WHEN order_index IS NULL THEN 999 ELSE order_index END, type")
         for r in rows:
             r["settings"] = json.loads(r.get("settings") or "{}")
         return rows
@@ -383,6 +392,16 @@ class LicenseDB:
             )
             await db.commit()
         return await self.get_gateway(gtype)
+
+    async def set_gateway_order(self, ordered_types: list[str]):
+        """Set order_index for each gateway type based on provided list order."""
+        async with aiosqlite.connect(self.path) as db:
+            for idx, gtype in enumerate(ordered_types):
+                await db.execute(
+                    "UPDATE payment_gateways SET order_index = ? WHERE type = ?",
+                    (idx, gtype),
+                )
+            await db.commit()
 
     async def export_backup(self) -> dict:
         servers = await self.get_all_servers()
