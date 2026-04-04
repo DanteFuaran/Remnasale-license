@@ -173,15 +173,17 @@ def user_server_kb(server: dict, support_url: str = "", community_url: str = "")
 def setting_edit_kb(clear_cb: str, back_cb: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🗑 Очистить", callback_data=clear_cb, style="danger")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=back_cb, style="primary")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=back_cb, style="danger")],
     ])
 
 
 def setting_edit_pending_kb(accept_cb: str, clear_cb: str, back_cb: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Принять", callback_data=accept_cb, style="success")],
         [InlineKeyboardButton(text="🗑 Очистить", callback_data=clear_cb, style="danger")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=back_cb, style="primary")],
+        [
+            InlineKeyboardButton(text="❌ Отмена", callback_data=back_cb, style="danger"),
+            InlineKeyboardButton(text="✅ Принять", callback_data=accept_cb, style="success"),
+        ],
     ])
 
 
@@ -197,13 +199,11 @@ def backup_kb() -> InlineKeyboardMarkup:
 
 
 def settings_kb(support_url: str = "", community_url: str = "") -> InlineKeyboardMarkup:
-    support_display = support_url or "Не указана"
-    community_display = community_url or "Не указано"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Настройка синхронизации", callback_data="settings_sync")],
         [
-            InlineKeyboardButton(text=f"🆘 Помощь: {support_display}", callback_data="settings_support_url"),
-            InlineKeyboardButton(text=f"👥 Сообщество: {community_display}", callback_data="settings_community_url"),
+            InlineKeyboardButton(text="🆘 Помощь", callback_data="settings_support_url"),
+            InlineKeyboardButton(text="👥 Сообщество", callback_data="settings_community_url"),
         ],
         [InlineKeyboardButton(text="💳 Платёжные системы", callback_data="settings_payments")],
         [InlineKeyboardButton(text="💾 Управление БД", callback_data="backup_menu")],
@@ -310,11 +310,9 @@ def gateway_placement_kb(gateways: list[dict]) -> InlineKeyboardMarkup:
         gtype = gw["type"]
         meta = GATEWAY_TYPES.get(gtype, {})
         label = meta.get("label", gtype)
-        row = [InlineKeyboardButton(text=f"{idx + 1}. {label}", callback_data=f"gwpos:{gtype}")]
+        row = [InlineKeyboardButton(text=label, callback_data=f"gwpos:{gtype}")]
         if idx > 0:
-            row.insert(0, InlineKeyboardButton(text="⬆️", callback_data=f"gwup:{gtype}"))
-        if idx < len(gateways) - 1:
-            row.append(InlineKeyboardButton(text="⬇️", callback_data=f"gwdn:{gtype}"))
+            row.append(InlineKeyboardButton(text="⬆️", callback_data=f"gwup:{gtype}"))
         buttons.append(row)
     buttons.append([
         InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_payments", style="primary"),

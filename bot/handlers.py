@@ -218,9 +218,7 @@ async def _clear_confirm(state: FSMContext, bot: Bot, chat_id: int):
 
 
 async def _settings_kb_full(db: Database) -> InlineKeyboardMarkup:
-    support = await db.get_setting("support_url")
-    community = await db.get_setting("community_url")
-    return settings_kb(support, community)
+    return settings_kb()
 
 
 # ── /start ────────────────────────────────────────────────────────────────────
