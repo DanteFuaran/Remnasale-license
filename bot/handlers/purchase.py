@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import logging
@@ -29,34 +30,65 @@ router = Router()
 STARS_RATE = 2
 
 
+async def _auto_delete(bot: Bot, chat_id: int, message_id: int, delay: int = 300):
+    """Auto-delete a message after `delay` seconds."""
+    await asyncio.sleep(delay)
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
+
+
+async def _delete_notification(state: FSMContext, bot: Bot, chat_id: int):
+    """Delete pending notification message stored in FSM state."""
+    data = await state.get_data()
+    note_id = data.get("_notification_id")
+    if note_id:
+        try:
+            await bot.delete_message(chat_id, note_id)
+        except Exception:
+            pass
+        await state.update_data(_notification_id=None)
+
+
+_selection_quote = "\n\n".join(
+    f"• <b>{p['name']}</b> — {p['description']}"
+    for p in PRODUCTS.values()
+)
 _SELECTION_TEXT = (
-    "🛒 <b>Покупка ключа</b>\n\n"
-    "• <b>Remnasale</b> — Телеграм бот для продажи и управления подписками.\n"
-    "• <b>Remnasup</b> — Телеграм бот для поддержки пользователей.\n\n"
-    "Выберите продукты:"
+    f"🛒 <b>Покупка ключа</b>\n\n"
+    f"<blockquote>{_selection_quote}</blockquote>\n\n"
+    f"Выберите продукты:"
 )
 
 
-def _duration_text(selected: set[str]) -> str:
-    lines = ["🛒 <b>Покупка ключа</b>\n", "<b>Активируемые приложения:</b>"]
-    total_monthly = 0
+def _products_block(selected: set[str]) -> str:
+    """Header + blockquote with products and unlimited price. No trailing prompt."""
+    product_lines = []
     total_unlimited = 0
     for key, p in PRODUCTS.items():
         if key not in selected:
             continue
-        total_monthly += p["price_monthly"]
         total_unlimited += p["price"]
-        lines.append(f"• {p['emoji']} {p['name']} — {_format_price(p['price_monthly'])} ₽/мес")
-    lines.append(f"\n💰 Итого: <b>{_format_price(total_monthly)} ₽/мес</b>")
-    lines.append(f"♾️ Безлимит: <b>{_format_price(total_unlimited)} ₽</b> (единоразово)\n")
-    lines.append("Выберите длительность:")
-    return "\n".join(lines)
+        product_lines.append(f"{p['emoji']} {p['name']} — {_format_price(p['price_monthly'])} ₽/мес")
+    product_lines.append(f"♾️ Безлимит: {_format_price(total_unlimited)} ₽ (единоразово)")
+    quote = "\n\n".join(product_lines)
+    return (
+        f"🛒 <b>Покупка ключа</b>\n\n"
+        f"Активируемые приложения:\n"
+        f"<blockquote>{quote}</blockquote>"
+    )
+
+
+def _duration_text(selected: set[str]) -> str:
+    return _products_block(selected) + "\n\nВыберите длительность:"
 
 
 # ── Начало покупки ──────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "purchase_start")
 async def cb_purchase_start(call: CallbackQuery, state: FSMContext):
+    await _delete_notification(state, call.bot, call.message.chat.id)
     await state.clear()
     await state.set_state(PurchaseState.selecting_products)
     await state.update_data(selected_products=[])
@@ -66,6 +98,7 @@ async def cb_purchase_start(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "purchase_cancel")
 async def cb_purchase_cancel(call: CallbackQuery, state: FSMContext, db: Database):
+    await _delete_notification(state, call.bot, call.message.chat.id)
     await state.clear()
     support = await db.get_setting("support_url")
     community = await db.get_setting("community_url")
@@ -78,6 +111,7 @@ async def cb_purchase_cancel(call: CallbackQuery, state: FSMContext, db: Databas
 
 @router.callback_query(F.data == "purchase_back_products")
 async def cb_purchase_back_products(call: CallbackQuery, state: FSMContext):
+    await _delete_notification(state, call.bot, call.message.chat.id)
     data = await state.get_data()
     selected = set(data.get("selected_products", []))
     await state.set_state(PurchaseState.selecting_products)
@@ -93,6 +127,7 @@ async def cb_product_toggle(call: CallbackQuery, state: FSMContext):
     if product_key not in PRODUCTS:
         return await call.answer("❌ Неизвестный продукт", show_alert=True)
 
+    await _delete_notification(state, call.bot, call.message.chat.id)
     data = await state.get_data()
     selected = set(data.get("selected_products", []))
 
@@ -110,6 +145,7 @@ async def cb_product_toggle(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "purchase_next_duration")
 async def cb_purchase_next_duration(call: CallbackQuery, state: FSMContext):
+    await _delete_notification(state, call.bot, call.message.chat.id)
     data = await state.get_data()
     selected = set(data.get("selected_products", []))
     if not selected:
@@ -124,6 +160,7 @@ async def cb_purchase_next_duration(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("pd:"), PurchaseState.selecting_duration)
 async def cb_purchase_duration(call: CallbackQuery, state: FSMContext, db: Database):
+    await _delete_notification(state, call.bot, call.message.chat.id)
     duration_key = call.data.split(":")[1]
     if duration_key not in PURCHASE_DURATIONS:
         return await call.answer("❌ Неизвестная длительность", show_alert=True)
@@ -131,15 +168,21 @@ async def cb_purchase_duration(call: CallbackQuery, state: FSMContext, db: Datab
 
     data = await state.get_data()
     selected = set(data.get("selected_products", []))
-    await state.update_data(selected_duration=duration_key)
-    await state.set_state(PurchaseState.selecting_payment)
 
     gateways = await db.get_all_gateways()
     active_gateways = [gw for gw in gateways if gw["is_active"]]
 
     if not active_gateways:
-        await call.answer("❌ Нет доступных способов оплаты. Обратитесь к администратору.", show_alert=True)
+        note = await call.message.answer(
+            "⚠️ Нет доступных способов оплаты. Обратитесь к администратору."
+        )
+        await state.update_data(_notification_id=note.message_id)
+        asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
+        await call.answer()
         return
+
+    await state.update_data(selected_duration=duration_key)
+    await state.set_state(PurchaseState.selecting_payment)
 
     if duration_key == "unlimited":
         total = sum(PRODUCTS[k]["price"] for k in selected)
@@ -149,7 +192,7 @@ async def cb_purchase_duration(call: CallbackQuery, state: FSMContext, db: Datab
         dur_label = dur["label"]
 
     text = (
-        f"{_duration_text(selected)}\n"
+        f"{_products_block(selected)}\n\n"
         f"🗓 Длительность: <b>{dur_label}</b>\n"
         f"💳 К оплате: <b>{_format_price(total)} ₽</b>\n\n"
         f"Выберите способ оплаты:"
