@@ -35,12 +35,27 @@ async def _clear_confirm(state: FSMContext, bot: Bot, chat_id: int):
 
 
 async def _clear_chat(bot: Bot, chat_id: int, up_to_msg_id: int):
-    """Удаляет предыдущие сообщения в фоне."""
-    for msg_id in range(up_to_msg_id, max(0, up_to_msg_id - 100), -1):
-        try:
-            await bot.delete_message(chat_id, msg_id)
-        except Exception:
-            pass
+    """Удаляет все сообщения бота, начиная с up_to_msg_id и уходя далеко назад.
+
+    Telegram позволяет боту удалять собственные сообщения в личном чате без
+    ограничений по давности. Чужие сообщения (команды пользователя) просто
+    упадут с ошибкой и будут проигнорированы.
+    """
+    LOOKBACK = 5000          # максимум сообщений назад
+    BATCH    = 50            # сколько удаляем за один round
+    end_id   = max(1, up_to_msg_id - LOOKBACK)
+    current  = up_to_msg_id
+    while current >= end_id:
+        batch_start = current
+        batch_end   = max(end_id, current - BATCH + 1)
+        tasks = [
+            bot.delete_message(chat_id, mid)
+            for mid in range(batch_start, batch_end - 1, -1)
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
+        current = batch_end - 1
+        if current >= end_id:
+            await asyncio.sleep(0.05)  # мягкая пауза, чтобы не упереться в rate-limit
 
 
 async def _clear_chat_bg(bot: Bot, chat_id: int, up_to_msg_id: int):
