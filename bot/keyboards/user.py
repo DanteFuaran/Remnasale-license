@@ -42,7 +42,10 @@ def user_server_kb(server: dict, support_url: str = "", community_url: str = "")
         link_row.append(InlineKeyboardButton(text="👥 Сообщество", url=f"https://t.me/{community_url}"))
     if link_row:
         buttons.append(link_row)
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="my_servers", style="primary")])
+    buttons.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="my_servers", style="primary"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 

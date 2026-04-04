@@ -5,6 +5,7 @@ def setting_edit_kb(clear_cb: str, back_cb: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🗑 Очистить", callback_data=clear_cb, style="danger")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data=back_cb, style="danger")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary")],
     ])
 
 
@@ -15,6 +16,7 @@ def setting_edit_pending_kb(accept_cb: str, clear_cb: str, back_cb: str) -> Inli
             InlineKeyboardButton(text="❌ Отмена", callback_data=back_cb, style="danger"),
             InlineKeyboardButton(text="✅ Принять", callback_data=accept_cb, style="success"),
         ],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary")],
     ])
 
 
@@ -43,7 +45,7 @@ def sync_kb(check_interval: int, offline_grace_days: int) -> InlineKeyboardMarku
         )],
         [
             InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
-            InlineKeyboardButton(text="🏠 Главноե меню", callback_data="admin_panel", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
         ],
     ])
 
@@ -80,7 +82,7 @@ def payments_kb(gateways: list[dict]) -> InlineKeyboardMarkup:
     ])
     buttons.append([
         InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -113,8 +115,8 @@ def gateway_detail_kb(gw: dict, public_url: str = "") -> InlineKeyboardMarkup:
         )])
 
     buttons.append([
-        InlineKeyboardButton(text="❌ Отмена", callback_data="settings_payments", style="primary"),
-        InlineKeyboardButton(text="✅ Принять", callback_data="main", style="success"),
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_payments", style="primary"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -141,7 +143,7 @@ def gateway_placement_kb(gateways: list[dict]) -> InlineKeyboardMarkup:
         buttons.append(row)
     buttons.append([
         InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_payments", style="primary"),
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -156,6 +158,6 @@ def gateway_currency_kb(current: str) -> InlineKeyboardMarkup:
         )])
     buttons.append([
         InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_payments", style="primary"),
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

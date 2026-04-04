@@ -128,7 +128,7 @@ async def cb_gateway_field(call: CallbackQuery, state: FSMContext, db: Database)
             [InlineKeyboardButton(text="🗑 Очистить", callback_data=f"gwfc:{gtype}:{field}", style="danger")],
             [
                 InlineKeyboardButton(text="❌ Отмена", callback_data=f"gw:{gtype}", style="primary"),
-                InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+                InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
             ],
         ]),
     )
