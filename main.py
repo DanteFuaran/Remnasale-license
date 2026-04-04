@@ -7,7 +7,7 @@ from aiogram.client.default import DefaultBotProperties
 from config import BOT_TOKEN, API_HOST, API_PORT, DATABASE_PATH
 from database import LicenseDB
 from api import setup_routes
-from bot.handlers import router
+from bot.handlers import setup_routers
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher()
     dp["db"] = db
-    dp.include_router(router)
+    setup_routers(dp)
 
     app = web.Application()
     app["db"] = db

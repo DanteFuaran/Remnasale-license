@@ -1,6 +1,7 @@
 import aiosqlite
 import json
 import secrets
+import uuid
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -103,6 +104,25 @@ class LicenseDB:
             await db.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES ('payment_currency', 'RUB')"
             )
+
+            # Заказы (покупки лицензий)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    id TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    products TEXT NOT NULL DEFAULT '[]',
+                    duration TEXT NOT NULL DEFAULT '1m',
+                    amount INTEGER NOT NULL DEFAULT 0,
+                    currency TEXT NOT NULL DEFAULT 'RUB',
+                    gateway TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TEXT NOT NULL,
+                    paid_at TEXT,
+                    payment_url TEXT DEFAULT '',
+                    payment_data TEXT DEFAULT '{}'
+                )
+            """)
+
             await db.commit()
 
     async def _fetch_one(self, query: str, params: tuple = ()) -> Optional[dict]:
@@ -465,6 +485,90 @@ class LicenseDB:
                     (gw["type"], gw.get("is_active", 0), json.dumps(s, ensure_ascii=False)),
                 )
             await db.commit()
+
+    # ── Заказы ─────────────────────────────────────────────────────────
+
+    async def create_order(
+        self,
+        user_id: int,
+        products: list[str],
+        duration: str,
+        amount: int,
+        currency: str,
+        gateway: str,
+    ) -> dict:
+        order_id = uuid.uuid4().hex
+        now = datetime.now(timezone.utc).isoformat()
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                """INSERT INTO orders (id, user_id, products, duration, amount, currency, gateway, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
+                (order_id, user_id, json.dumps(products), duration, amount, currency, gateway, now),
+            )
+            await db.commit()
+        return await self.get_order(order_id)
+
+    async def get_order(self, order_id: str) -> Optional[dict]:
+        row = await self._fetch_one("SELECT * FROM orders WHERE id = ?", (order_id,))
+        if row:
+            row["products"] = json.loads(row.get("products") or "[]")
+            row["payment_data"] = json.loads(row.get("payment_data") or "{}")
+        return row
+
+    async def update_order_payment_url(self, order_id: str, url: str):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE orders SET payment_url = ? WHERE id = ?", (url, order_id)
+            )
+            await db.commit()
+
+    async def complete_order(self, order_id: str, payment_data: dict | None = None) -> Optional[dict]:
+        now = datetime.now(timezone.utc).isoformat()
+        pd = json.dumps(payment_data or {}, ensure_ascii=False)
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE orders SET status = 'paid', paid_at = ?, payment_data = ? WHERE id = ? AND status = 'pending'",
+                (now, pd, order_id),
+            )
+            await db.commit()
+        return await self.get_order(order_id)
+
+    async def fail_order(self, order_id: str):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE orders SET status = 'failed' WHERE id = ? AND status = 'pending'",
+                (order_id,),
+            )
+            await db.commit()
+
+    async def get_pending_order(self, order_id: str) -> Optional[dict]:
+        row = await self._fetch_one(
+            "SELECT * FROM orders WHERE id = ? AND status = 'pending'", (order_id,)
+        )
+        if row:
+            row["products"] = json.loads(row.get("products") or "[]")
+            row["payment_data"] = json.loads(row.get("payment_data") or "{}")
+        return row
+
+    async def add_server_for_user(self, user_id: int, products: list[str], duration: str) -> dict:
+        """Создаёт сервер и привязывает к telegram_id пользователя."""
+        key = secrets.token_hex(20)
+        now = datetime.now(timezone.utc)
+        product_names = ", ".join(products)
+        name = f"Сервер ({product_names})"
+
+        duration_days = {"1m": 30, "3m": 90, "6m": 180, "12m": 365}
+        days = duration_days.get(duration, 30)
+        expires = (now + timedelta(days=days)).isoformat()
+
+        async with aiosqlite.connect(self.path) as db:
+            cursor = await db.execute(
+                """INSERT INTO servers (name, license_key, period, created_at, expires_at, dev_telegram_ids)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (name, key, duration, now.isoformat(), expires, str(user_id)),
+            )
+            await db.commit()
+            return await self.get_server(cursor.lastrowid)
 
 
 Database = LicenseDB

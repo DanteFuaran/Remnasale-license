@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 import os
 import time
@@ -232,6 +234,151 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
     return web.json_response({"success": True})
 
 
+# ── Payment Webhooks ──────────────────────────────────────────────────────
+
+async def _process_paid_order(request: web.Request, order_id: str, payment_data: dict):
+    """Обработка оплаченного заказа: создание сервера и уведомление."""
+    db = request.app["db"]
+    bot = request.app.get("bot")
+
+    order = await db.complete_order(order_id, payment_data)
+    if not order:
+        return
+
+    server = await db.add_server_for_user(
+        user_id=order["user_id"],
+        products=order["products"],
+        duration=order["duration"],
+    )
+    key = server["license_key"]
+
+    if bot:
+        try:
+            text = (
+                "✅ <b>Оплата получена!</b>\n\n"
+                f"🔑 Ваш лицензионный ключ:\n<code>{key}</code>\n\n"
+                f"Используйте этот ключ для установки на вашем сервере."
+            )
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary")],
+            ])
+            await bot.send_message(order["user_id"], text, reply_markup=kb)
+        except Exception as e:
+            logger.warning(f"[webhook] Failed to notify user {order['user_id']}: {e}")
+
+        try:
+            product_names = ", ".join(order["products"])
+            admin_text = (
+                f"🛒 <b>Новая покупка!</b>\n\n"
+                f"👤 Пользователь: <code>{order['user_id']}</code>\n"
+                f"📦 Продукты: {product_names}\n"
+                f"💰 Сумма: {order['amount']} {order['currency']}\n"
+                f"🔑 Ключ: <code>{key}</code>"
+            )
+            await bot.send_message(BOT_ADMIN_ID, admin_text)
+        except Exception:
+            pass
+
+
+async def handle_webhook_yoomoney(request: web.Request) -> web.Response:
+    """YooMoney webhook: SHA1 verification."""
+    db = request.app["db"]
+
+    try:
+        data = await request.post()
+    except Exception:
+        return web.Response(status=400, text="bad request")
+
+    label = data.get("label", "").strip()
+    if not label:
+        return web.Response(status=400, text="missing label")
+
+    order = await db.get_pending_order(label)
+    if not order:
+        logger.info(f"[yoomoney] Order not found or already processed: {label}")
+        return web.Response(status=200, text="ok")
+
+    # SHA1 verification
+    gw = await db.get_gateway("yoomoney")
+    if gw:
+        secret = (gw.get("settings", {}).get("secret_key", "") or "").strip()
+        if secret:
+            check_str = "&".join([
+                str(data.get("notification_type", "")),
+                str(data.get("operation_id", "")),
+                str(data.get("amount", "")),
+                str(data.get("currency", "")),
+                str(data.get("datetime", "")),
+                str(data.get("sender", "")),
+                str(data.get("codepro", "")),
+                secret,
+                str(data.get("label", "")),
+            ])
+            expected_hash = hashlib.sha1(check_str.encode()).hexdigest()
+            received_hash = data.get("sha1_hash", "")
+            if expected_hash != received_hash:
+                logger.warning(f"[yoomoney] SHA1 mismatch for order {label}")
+                return web.Response(status=403, text="invalid signature")
+
+    await _process_paid_order(request, label, {
+        "provider": "yoomoney",
+        "operation_id": data.get("operation_id", ""),
+        "amount": data.get("amount", ""),
+        "sender": data.get("sender", ""),
+    })
+
+    return web.Response(status=200, text="ok")
+
+
+async def handle_webhook_heleket(request: web.Request) -> web.Response:
+    """Heleket webhook: MD5 signature verification."""
+    db = request.app["db"]
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.Response(status=400, text="bad request")
+
+    order_id = data.get("order_id", "").strip()
+    status = data.get("status", "")
+
+    if not order_id:
+        return web.Response(status=400, text="missing order_id")
+
+    if status not in ("paid", "paid_over"):
+        logger.info(f"[heleket] Non-paid status for {order_id}: {status}")
+        return web.Response(status=200, text="ok")
+
+    order = await db.get_pending_order(order_id)
+    if not order:
+        logger.info(f"[heleket] Order not found or already processed: {order_id}")
+        return web.Response(status=200, text="ok")
+
+    # MD5 signature verification
+    gw = await db.get_gateway("heleket")
+    if gw:
+        api_key = (gw.get("settings", {}).get("api_key", "") or "").strip()
+        if api_key:
+            sign = request.headers.get("sign", "")
+            body_raw = await request.text()
+            expected = hashlib.md5(
+                (json.dumps(data, separators=(",", ":"), sort_keys=True).encode().hex() + api_key).encode()
+            ).hexdigest()
+            if sign != expected:
+                logger.warning(f"[heleket] Signature mismatch for order {order_id}")
+                return web.Response(status=403, text="invalid signature")
+
+    await _process_paid_order(request, order_id, {
+        "provider": "heleket",
+        "status": status,
+        "amount": data.get("amount", ""),
+        "currency": data.get("currency", ""),
+    })
+
+    return web.Response(status=200, text="ok")
+
+
 async def handle_report(request: web.Request) -> web.Response:
     db = request.app["db"]
     try:
@@ -264,4 +411,6 @@ def setup_routes(app: web.Application):
     app.router.add_get("/api/v1/version", handle_version)
     app.router.add_get("/api/v1/download", handle_download)
     app.router.add_get("/api/v1/install/script", handle_install_script)
+    app.router.add_post("/api/v1/webhook/yoomoney", handle_webhook_yoomoney)
+    app.router.add_post("/api/v1/webhook/heleket", handle_webhook_heleket)
     app.router.add_get("/health", handle_health)
