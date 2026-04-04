@@ -1,25 +1,26 @@
+import asyncio
 import io
 import json
-import sqlite3
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
-    Message, CallbackQuery, BufferedInputFile,
-    Document,
+    Message, CallbackQuery, BufferedInputFile, Document,
 )
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from config import BOT_ADMIN_ID
 from database import Database
 from bot.keyboards import (
     main_menu_kb, clients_kb, period_kb,
-    server_detail_kb, confirm_delete_kb, backup_kb, settings_kb,
-    server_status,
+    server_detail_kb, backup_kb, settings_kb,
+    server_status, PERIOD_LABELS,
 )
 
 router = Router()
+
+MSK_OFFSET = timedelta(hours=3)
 
 
 class AddServerState(StatesGroup):
@@ -43,78 +44,111 @@ def _is_admin(user_id: int) -> bool:
     return user_id == BOT_ADMIN_ID
 
 
+def _pluralize_servers(n: int) -> str:
+    if 11 <= n % 100 <= 19:
+        return f"{n} серверов"
+    r = n % 10
+    if r == 1:
+        return f"{n} сервер"
+    elif 2 <= r <= 4:
+        return f"{n} сервера"
+    return f"{n} серверов"
+
+
 def format_server(server: dict) -> str:
     emoji, status_text = server_status(server)
-    sip = server.get("server_ip") or "—"
-    created = ""
+
+    sip = server.get("server_ip") or ""
+    ip_display = f"<code>{sip}</code>" if sip else "Не привязан"
+
+    created = "—"
     try:
         dt = datetime.fromisoformat(server["created_at"])
         created = dt.strftime("%d.%m.%Y")
     except Exception:
-        created = "—"
-    expires = ""
-    if not server["expires_at"]:
-        expires = "♾ Бессрочно"
+        pass
+
+    if not server.get("expires_at"):
+        expires = "♾️"
     else:
         try:
             dt = datetime.fromisoformat(server["expires_at"])
-            expires = dt.strftime("%d.%m.%Y %H:%M") + " UTC"
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt_msk = dt + MSK_OFFSET
+            expires = dt_msk.strftime("%d.%m.%Y %H:%M") + " (МСК)"
         except Exception:
             expires = "—"
-    period_label = server.get("period", "—") or "—"
+
+    period_code = server.get("period") or "—"
+    period_label = PERIOD_LABELS.get(period_code, period_code)
     key = server.get("license_key", "—")
 
-    lines = [
-        f"{emoji} <b>{server['name']}</b>",
-        "",
-        f"🔑 Ключ: <code>{key}</code>",
-        f"🌐 IP: <code>{sip}</code>",
-        f"📅 Добавлен: {created}",
-        f"⏳ Истекает: {expires}",
-        f"🗓 Тариф: {period_label}",
-    ]
-    return "\n".join(lines)
+    return (
+        f"Пользователь: <b>{server['name']}</b>\n"
+        f"Статус: {emoji} <b>{status_text}</b>\n"
+        f"🌐 IP: {ip_display}\n"
+        f"\n"
+        f"🔑 Ключ: <code>{key}</code>\n"
+        f"\n"
+        f"📅 Добавлен: {created}\n"
+        f"⏳ Истекает: {expires}\n"
+        f"🗓 Длительность: {period_label}"
+    )
 
 
-# ── /start ──────────────────────────────────────────────────────────────────
+def _clients_header(count: int) -> str:
+    return f"📋 <b>Список серверов:</b> {_pluralize_servers(count)}"
+
+
+async def _clear_confirm(state: FSMContext, bot, chat_id: int):
+    """Delete pending confirm notification and clear confirm state keys."""
+    data = await state.get_data()
+    msg_id = data.get("confirm_msg_id")
+    if msg_id:
+        try:
+            await bot.delete_message(chat_id, msg_id)
+        except Exception:
+            pass
+    keys_to_keep = {k: v for k, v in data.items()
+                    if k not in ("confirm_delete", "confirm_blacklist", "confirm_msg_id")}
+    await state.set_data(keys_to_keep)
+
+
+# ── /start ────────────────────────────────────────────────────────────────────
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     if not _is_admin(message.from_user.id):
         return await message.answer("⛔ Нет доступа.")
-    await message.answer(
-        "🔑 <b>Управление лицензиями</b>",
-        reply_markup=main_menu_kb(),
-    )
+    await message.answer("🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb())
 
 
 @router.callback_query(F.data == "main")
 async def cb_main_menu(call: CallbackQuery, state: FSMContext):
+    await _clear_confirm(state, call.bot, call.message.chat.id)
     await state.clear()
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
-    await call.message.edit_text(
-        "🔑 <b>Управление лицензиями</b>",
-        reply_markup=main_menu_kb(),
-    )
+    await call.message.edit_text("🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb())
     await call.answer()
 
 
-# ── Список клиентов ──────────────────────────────────────────────────────────
+# ── Список клиентов ────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "clients")
 async def cb_clients(call: CallbackQuery, state: FSMContext, db: Database):
+    await _clear_confirm(state, call.bot, call.message.chat.id)
     await state.clear()
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     servers = await db.get_all_servers()
-    text = f"📋 <b>Клиенты</b> — {len(servers)} сервер(ов)"
-    await call.message.edit_text(text, reply_markup=clients_kb(servers))
+    await call.message.edit_text(_clients_header(len(servers)), reply_markup=clients_kb(servers))
     await call.answer()
 
 
-# ── Статистика ───────────────────────────────────────────────────────────────
+# ── Статистика ─────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "stats")
 async def cb_stats(call: CallbackQuery, db: Database):
@@ -123,10 +157,7 @@ async def cb_stats(call: CallbackQuery, db: Database):
     servers = await db.get_all_servers()
     total = len(servers)
     now = datetime.now(timezone.utc)
-    active = 0
-    expired = 0
-    paused = 0
-    blacklisted = 0
+    active = expired = paused = blacklisted = 0
     for s in servers:
         if s.get("is_blacklisted"):
             blacklisted += 1
@@ -137,6 +168,7 @@ async def cb_stats(call: CallbackQuery, db: Database):
                 dt = datetime.fromisoformat(s["expires_at"])
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
+                (expired if now > dt else active).__class__  # just for reference
                 if now > dt:
                     expired += 1
                 else:
@@ -146,52 +178,70 @@ async def cb_stats(call: CallbackQuery, db: Database):
         else:
             active += 1
 
-    text = (
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main")]
+    ])
+    await call.message.edit_text(
         "📊 <b>Статистика</b>\n\n"
         f"Всего серверов: <b>{total}</b>\n"
         f"🟢 Активных: <b>{active}</b>\n"
         f"🟡 Истекших: <b>{expired}</b>\n"
         f"🔴 Приостановлено: <b>{paused}</b>\n"
-        f"❌ Заблокировано: <b>{blacklisted}</b>"
+        f"❌ Заблокировано: <b>{blacklisted}</b>",
+        reply_markup=kb,
     )
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main")]
-    ])
-    await call.message.edit_text(text, reply_markup=kb)
     await call.answer()
 
 
-# ── Карточка сервера ─────────────────────────────────────────────────────────
+# ── Карточка сервера ───────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("s:"))
 async def cb_server_detail(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
+    await _clear_confirm(state, call.bot, call.message.chat.id)
     await state.clear()
     server_id = int(call.data.split(":")[1])
     server = await db.get_server(server_id)
     if not server:
         await call.answer("Сервер не найден", show_alert=True)
         return
-    await call.message.edit_text(
-        format_server(server),
-        reply_markup=server_detail_kb(server),
-    )
+    await call.message.edit_text(format_server(server), reply_markup=server_detail_kb(server))
     await call.answer()
 
 
-# ── Добавить сервер ───────────────────────────────────────────────────────────
+# ── Переключение статуса из списка ────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("tgl:"))
+async def cb_toggle_from_list(call: CallbackQuery, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    server_id = int(call.data.split(":")[1])
+    server = await db.get_server(server_id)
+    if not server:
+        await call.answer("Сервер не найден", show_alert=True)
+        return
+    if server.get("is_blacklisted"):
+        await call.answer("⛔ Сервер заблокирован", show_alert=True)
+        return
+    new_active = 0 if server["is_active"] else 1
+    await db.set_server_active(server_id, new_active)
+    servers = await db.get_all_servers()
+    await call.message.edit_text(_clients_header(len(servers)), reply_markup=clients_kb(servers))
+    await call.answer("▶️ Возобновлён" if new_active else "⏸ Приостановлен")
+
+
+# ── Добавить сервер ────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "add")
 async def cb_add_server(call: CallbackQuery, state: FSMContext):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await state.set_state(AddServerState.waiting_name)
-    await call.message.edit_text(
-        "✏️ Введите название сервера:",
-        reply_markup=None,
-    )
+    await state.update_data(prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
+    await call.message.edit_text("✏️ Введите название сервера:", reply_markup=None)
     await call.answer()
 
 
@@ -199,12 +249,27 @@ async def cb_add_server(call: CallbackQuery, state: FSMContext):
 async def on_server_name(message: Message, state: FSMContext):
     if not _is_admin(message.from_user.id):
         return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    data = await state.get_data()
     await state.update_data(name=message.text.strip())
     await state.set_state(AddServerState.waiting_period)
-    await message.answer(
-        "🗓 Выберите тариф:",
-        reply_markup=period_kb("ap"),
-    )
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    if prompt_msg_id:
+        try:
+            await message.bot.edit_message_text(
+                "🗓 Укажите длительность:",
+                chat_id=chat_id,
+                message_id=prompt_msg_id,
+                reply_markup=period_kb("ap", back_cb="clients"),
+            )
+            return
+        except Exception:
+            pass
+    await message.answer("🗓 Укажите длительность:", reply_markup=period_kb("ap", back_cb="clients"))
 
 
 @router.callback_query(F.data.startswith("ap:"))
@@ -223,19 +288,23 @@ async def cb_period_selected(call: CallbackQuery, state: FSMContext, db: Databas
     await call.answer()
 
 
-# ── Продлить ──────────────────────────────────────────────────────────────────
+# ── Продлить ───────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("ext:"))
-async def cb_extend(call: CallbackQuery, state: FSMContext):
+async def cb_extend(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     server_id = int(call.data.split(":")[1])
+    # Check if we're in AddServerState.waiting_period (shouldn't be, but guard)
+    current_state = await state.get_state()
+    if current_state == AddServerState.waiting_period:
+        return await call.answer()
+    await _clear_confirm(state, call.bot, call.message.chat.id)
     await state.update_data(server_id=server_id)
     await call.message.edit_text(
-        "🗓 Выберите новый тариф:",
-        reply_markup=period_kb(f"ep"),
+        "🗓 Укажите длительность:",
+        reply_markup=period_kb("ep", back_cb=f"s:{server_id}"),
     )
-    await state.update_data(server_id=server_id)
     await call.answer()
 
 
@@ -258,12 +327,13 @@ async def cb_extend_period(call: CallbackQuery, state: FSMContext, db: Database)
     await call.answer("✅ Тариф обновлён")
 
 
-# ── Сбросить IP ───────────────────────────────────────────────────────────────
+# ── Сбросить IP ────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("rip:"))
-async def cb_reset_ip(call: CallbackQuery, db: Database):
+async def cb_reset_ip(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
+    await _clear_confirm(state, call.bot, call.message.chat.id)
     server_id = int(call.data.split(":")[1])
     server = await db.reset_server_ip(server_id)
     if not server:
@@ -273,12 +343,13 @@ async def cb_reset_ip(call: CallbackQuery, db: Database):
     await call.answer("✅ IP сброшен")
 
 
-# ── Приостановить / Возобновить ───────────────────────────────────────────────
+# ── Приостановить / Возобновить ────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("tog:"))
-async def cb_toggle(call: CallbackQuery, db: Database):
+async def cb_toggle(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
+    await _clear_confirm(state, call.bot, call.message.chat.id)
     server_id = int(call.data.split(":")[1])
     server = await db.get_server(server_id)
     if not server:
@@ -287,14 +358,13 @@ async def cb_toggle(call: CallbackQuery, db: Database):
     new_active = 0 if server["is_active"] else 1
     server = await db.set_server_active(server_id, new_active)
     await call.message.edit_text(format_server(server), reply_markup=server_detail_kb(server))
-    status = "возобновлён" if new_active else "приостановлен"
-    await call.answer(f"{'▶️' if new_active else '⏸'} Сервер {status}")
+    await call.answer("▶️ Возобновлён" if new_active else "⏸ Приостановлен")
 
 
-# ── Заблокировать / Разблокировать ────────────────────────────────────────────
+# ── Заблокировать / Разблокировать ─────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("blk:"))
-async def cb_blacklist(call: CallbackQuery, db: Database):
+async def cb_blacklist(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     server_id = int(call.data.split(":")[1])
@@ -302,25 +372,111 @@ async def cb_blacklist(call: CallbackQuery, db: Database):
     if not server:
         await call.answer("Сервер не найден", show_alert=True)
         return
+
+    # Разблокировать — без подтверждения
     if server.get("is_blacklisted"):
+        await _clear_confirm(state, call.bot, call.message.chat.id)
         server = await db.unblacklist_server(server_id)
-        msg = "🔓 Сервер разблокирован"
-    else:
+        await call.message.edit_text(format_server(server), reply_markup=server_detail_kb(server))
+        await call.answer("🔓 Сервер разблокирован")
+        return
+
+    # Заблокировать — требует подтверждения
+    data = await state.get_data()
+    if data.get("confirm_blacklist") == server_id:
+        # Второе нажатие — подтверждаем
+        pending_msg_id = data.get("confirm_msg_id")
+        if pending_msg_id:
+            try:
+                await call.bot.delete_message(call.message.chat.id, pending_msg_id)
+            except Exception:
+                pass
+        await state.update_data(confirm_blacklist=None, confirm_msg_id=None)
         server = await db.blacklist_server(server_id)
-        msg = "🚫 Сервер заблокирован"
-    await call.message.edit_text(format_server(server), reply_markup=server_detail_kb(server))
-    await call.answer(msg)
+        await call.message.edit_text(format_server(server), reply_markup=server_detail_kb(server))
+        await call.answer("🚫 Сервер заблокирован")
+    else:
+        # Первое нажатие — показываем уведомление
+        await _clear_confirm(state, call.bot, call.message.chat.id)
+        notify = await call.message.answer(
+            "⚠️ Нажмите <b>Заблокировать</b> ещё раз для подтверждения"
+        )
+        await state.update_data(confirm_blacklist=server_id, confirm_msg_id=notify.message_id)
+
+        async def _auto_clear_blk():
+            await asyncio.sleep(5)
+            try:
+                await notify.delete()
+            except Exception:
+                pass
+            current = await state.get_data()
+            if current.get("confirm_blacklist") == server_id:
+                await state.update_data(confirm_blacklist=None, confirm_msg_id=None)
+
+        asyncio.create_task(_auto_clear_blk())
+        await call.answer()
 
 
-# ── Переименовать ─────────────────────────────────────────────────────────────
+# ── Удалить ────────────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("del:"))
+async def cb_delete(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    server_id = int(call.data.split(":")[1])
+    data = await state.get_data()
+
+    if data.get("confirm_delete") == server_id:
+        # Второе нажатие — подтверждаем удаление
+        pending_msg_id = data.get("confirm_msg_id")
+        if pending_msg_id:
+            try:
+                await call.bot.delete_message(call.message.chat.id, pending_msg_id)
+            except Exception:
+                pass
+        await state.update_data(confirm_delete=None, confirm_msg_id=None)
+        await db.delete_server(server_id)
+        servers = await db.get_all_servers()
+        await call.message.edit_text(_clients_header(len(servers)), reply_markup=clients_kb(servers))
+        await call.answer("🗑 Удалено")
+    else:
+        # Первое нажатие — показываем уведомление
+        server = await db.get_server(server_id)
+        if not server:
+            await call.answer("Сервер не найден", show_alert=True)
+            return
+        await _clear_confirm(state, call.bot, call.message.chat.id)
+        notify = await call.message.answer(
+            f"⚠️ Нажмите <b>Удалить</b> ещё раз для подтверждения"
+        )
+        await state.update_data(confirm_delete=server_id, confirm_msg_id=notify.message_id)
+
+        async def _auto_clear_del():
+            await asyncio.sleep(5)
+            try:
+                await notify.delete()
+            except Exception:
+                pass
+            current = await state.get_data()
+            if current.get("confirm_delete") == server_id:
+                await state.update_data(confirm_delete=None, confirm_msg_id=None)
+
+        asyncio.create_task(_auto_clear_del())
+        await call.answer()
+
+
+# ── Переименовать ──────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("ren:"))
 async def cb_rename(call: CallbackQuery, state: FSMContext):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
+    await _clear_confirm(state, call.bot, call.message.chat.id)
     server_id = int(call.data.split(":")[1])
     await state.set_state(RenameState.waiting_name)
-    await state.update_data(server_id=server_id)
+    await state.update_data(server_id=server_id,
+                            prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
     await call.message.edit_text("✏️ Введите новое название сервера:")
     await call.answer()
 
@@ -329,47 +485,29 @@ async def cb_rename(call: CallbackQuery, state: FSMContext):
 async def on_rename(message: Message, state: FSMContext, db: Database):
     if not _is_admin(message.from_user.id):
         return
+    try:
+        await message.delete()
+    except Exception:
+        pass
     data = await state.get_data()
     server_id = data.get("server_id")
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
     await state.clear()
     server = await db.rename_server(server_id, message.text.strip())
-    if not server:
-        await message.answer("Сервер не найден.")
-        return
-    await message.answer(format_server(server), reply_markup=server_detail_kb(server))
+    text = format_server(server) if server else "Сервер не найден."
+    kb = server_detail_kb(server) if server else None
+    if prompt_msg_id:
+        try:
+            await message.bot.edit_message_text(text, chat_id=chat_id,
+                                                 message_id=prompt_msg_id, reply_markup=kb)
+            return
+        except Exception:
+            pass
+    await message.answer(text, reply_markup=kb)
 
 
-# ── Удалить ───────────────────────────────────────────────────────────────────
-
-@router.callback_query(F.data.startswith("del:"))
-async def cb_delete(call: CallbackQuery, db: Database):
-    if not _is_admin(call.from_user.id):
-        return await call.answer("⛔")
-    server_id = int(call.data.split(":")[1])
-    server = await db.get_server(server_id)
-    if not server:
-        await call.answer("Сервер не найден", show_alert=True)
-        return
-    await call.message.edit_text(
-        f"🗑 Удалить сервер <b>{server['name']}</b>?\n\nЭто действие нельзя отменить.",
-        reply_markup=confirm_delete_kb(server_id),
-    )
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("cdel:"))
-async def cb_confirm_delete(call: CallbackQuery, db: Database):
-    if not _is_admin(call.from_user.id):
-        return await call.answer("⛔")
-    server_id = int(call.data.split(":")[1])
-    await db.delete_server(server_id)
-    servers = await db.get_all_servers()
-    text = f"📋 <b>Клиенты</b> — {len(servers)} сервер(ов)"
-    await call.message.edit_text(text, reply_markup=clients_kb(servers))
-    await call.answer("🗑 Удалено")
-
-
-# ── Настройки ─────────────────────────────────────────────────────────────────
+# ── Настройки ──────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "settings_menu")
 async def cb_settings_menu(call: CallbackQuery, state: FSMContext, db: Database):
@@ -378,14 +516,11 @@ async def cb_settings_menu(call: CallbackQuery, state: FSMContext, db: Database)
         return await call.answer("⛔")
     interval = await db.get_check_interval()
     grace = await db.get_offline_grace_days()
-    await call.message.edit_text(
-        "⚙️ <b>Настройки</b>",
-        reply_markup=settings_kb(interval, grace),
-    )
+    await call.message.edit_text("⚙️ <b>Настройки</b>", reply_markup=settings_kb(interval, grace))
     await call.answer()
 
 
-# ── Интервал проверки ─────────────────────────────────────────────────────────
+# ── Интервал проверки ──────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "settings_check_interval")
 async def cb_settings_interval(call: CallbackQuery, state: FSMContext):
@@ -415,7 +550,7 @@ async def on_interval_input(message: Message, state: FSMContext, db: Database):
     )
 
 
-# ── Офлайн-период ─────────────────────────────────────────────────────────────
+# ── Офлайн-период ──────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "settings_offline_grace")
 async def cb_settings_offline_grace(call: CallbackQuery, state: FSMContext):
@@ -423,7 +558,7 @@ async def cb_settings_offline_grace(call: CallbackQuery, state: FSMContext):
         return await call.answer("⛔")
     await state.set_state(SettingsOfflineGraceState.waiting_days)
     await call.message.edit_text(
-        "📡 Введите количество <b>дней</b> автономной работы клиентов при недоступности сервера лицензий (1–365):"
+        "📡 Введите количество <b>дней</b> автономной работы (1–365):"
     )
     await call.answer()
 
@@ -447,7 +582,7 @@ async def on_offline_grace_input(message: Message, state: FSMContext, db: Databa
     )
 
 
-# ── Бэкап ──────────────────────────────────────────────────────────────────────
+# ── Бэкап ───────────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "backup_menu")
 async def cb_backup_menu(call: CallbackQuery):
@@ -502,5 +637,7 @@ async def backup_load(message: Message, state: FSMContext, db: Database):
         return await message.answer(f"❌ Ошибка импорта: {e}")
     await state.clear()
     servers = await db.get_all_servers()
-    text = f"✅ Бэкап восстановлен\n\n📋 <b>Клиенты</b> — {len(servers)} сервер(ов)"
-    await message.answer(text, reply_markup=clients_kb(servers))
+    await message.answer(
+        f"✅ Бэкап восстановлен\n\n{_clients_header(len(servers))}",
+        reply_markup=clients_kb(servers),
+    )
