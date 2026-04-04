@@ -299,11 +299,31 @@ class LicenseDB:
     async def set_offline_grace_days(self, days: int):
         await self.set_setting("offline_grace_days", str(max(1, days)))
 
+    async def find_servers_by_dev_id(self, telegram_id: int) -> list[dict]:
+        servers = await self.get_all_servers()
+        tid_str = str(telegram_id)
+        result = []
+        for s in servers:
+            dev_ids = (s.get("dev_telegram_ids", "") or "").split(",")
+            if tid_str in [t.strip() for t in dev_ids if t.strip()]:
+                result.append(s)
+        return result
+
     async def export_backup(self) -> dict:
         servers = await self.get_all_servers()
         interval = await self.get_check_interval()
         grace = await self.get_offline_grace_days()
-        return {"servers": servers, "settings": {"check_interval_minutes": interval, "offline_grace_days": grace}}
+        support = await self.get_setting("support_url")
+        community = await self.get_setting("community_url")
+        return {
+            "servers": servers,
+            "settings": {
+                "check_interval_minutes": interval,
+                "offline_grace_days": grace,
+                "support_url": support,
+                "community_url": community,
+            },
+        }
 
     async def import_backup(self, data: dict):
         servers = data.get("servers", [])

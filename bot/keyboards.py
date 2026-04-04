@@ -113,9 +113,11 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔄 Продлить",   callback_data=f"ext:{sid}"),
             InlineKeyboardButton(text=toggle_text,     callback_data=f"tog:{sid}"),
         ],
-        [InlineKeyboardButton(text="✏️ Переименовать", callback_data=f"ren:{sid}")],
-        [InlineKeyboardButton(text="🔓 Сбросить IP",  callback_data=f"rip:{sid}")],
-        [InlineKeyboardButton(text="✉️ Отправить сообщение", callback_data=f"msg:{sid}")],
+        [InlineKeyboardButton(text="✉️ Написать сообщение", callback_data=f"msg:{sid}")],
+        [
+            InlineKeyboardButton(text="✏️ Переименовать", callback_data=f"ren:{sid}"),
+            InlineKeyboardButton(text="🔓 Сбросить IP",  callback_data=f"rip:{sid}"),
+        ],
         [
             InlineKeyboardButton(text=blk_text,       callback_data=f"blk:{sid}"),
             InlineKeyboardButton(text="🗑 Удалить",    callback_data=f"del:{sid}"),
@@ -127,6 +129,47 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
     ])
 
 
+def compose_kb(server_id: int, has_text: bool = False) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="📝 Ввести текст", callback_data=f"cmt:{server_id}")],
+    ]
+    if has_text:
+        buttons.append([
+            InlineKeyboardButton(text="👁 Предпросмотр", callback_data=f"cmp:{server_id}"),
+            InlineKeyboardButton(text="📤 Отправить", callback_data=f"cms:{server_id}"),
+        ])
+    buttons.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"s:{server_id}"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def user_servers_kb(servers: list[dict]) -> InlineKeyboardMarkup:
+    buttons = []
+    for s in servers:
+        emoji, _ = server_status(s)
+        buttons.append([
+            InlineKeyboardButton(text=f"{emoji} {s['name']}", callback_data=f"us:{s['id']}"),
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def user_server_kb(server: dict, support_url: str = "", community_url: str = "") -> InlineKeyboardMarkup:
+    sid = server["id"]
+    buttons = [
+        [InlineKeyboardButton(text="🔄 Продлить", callback_data=f"uext:{sid}")],
+    ]
+    link_row = []
+    if support_url:
+        link_row.append(InlineKeyboardButton(text="🆘 Поддержка", url=support_url))
+    if community_url:
+        link_row.append(InlineKeyboardButton(text="👥 Сообщество", url=community_url))
+    if link_row:
+        buttons.append(link_row)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def backup_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 Сохранить бэкап", callback_data="backup_save")],
@@ -135,7 +178,10 @@ def backup_kb() -> InlineKeyboardMarkup:
     ])
 
 
-def settings_kb(check_interval: int, offline_grace_days: int) -> InlineKeyboardMarkup:
+def settings_kb(check_interval: int, offline_grace_days: int,
+                support_url: str = "", community_url: str = "") -> InlineKeyboardMarkup:
+    support_display = support_url or "не задан"
+    community_display = community_url or "не задана"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text=f"🔄 Частота проверки: {check_interval} мин.",
@@ -144,6 +190,14 @@ def settings_kb(check_interval: int, offline_grace_days: int) -> InlineKeyboardM
         [InlineKeyboardButton(
             text=f"📡 Автономность: {offline_grace_days} дн.",
             callback_data="settings_offline_grace",
+        )],
+        [InlineKeyboardButton(
+            text=f"🆘 Поддержка: {support_display}",
+            callback_data="settings_support_url",
+        )],
+        [InlineKeyboardButton(
+            text=f"👥 Сообщество: {community_display}",
+            callback_data="settings_community_url",
         )],
         [InlineKeyboardButton(text="💾 Бэкап",            callback_data="backup_menu")],
         [InlineKeyboardButton(text="🏠 Главное меню",     callback_data="main")],

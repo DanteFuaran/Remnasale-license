@@ -16,7 +16,8 @@ from config import BOT_ADMIN_ID
 from database import Database
 from bot.keyboards import (
     main_menu_kb, clients_kb, period_kb, add_period_kb, cancel_kb,
-    server_detail_kb, backup_kb, settings_kb,
+    server_detail_kb, backup_kb, settings_kb, compose_kb,
+    user_servers_kb, user_server_kb,
     server_status, PERIOD_LABELS,
 )
 
@@ -42,12 +43,58 @@ class SettingsOfflineGraceState(StatesGroup):
     waiting_days = State()
 
 
+class SettingsSupportUrlState(StatesGroup):
+    waiting_url = State()
+
+
+class SettingsCommunityUrlState(StatesGroup):
+    waiting_url = State()
+
+
 class SendMessageState(StatesGroup):
+    composing = State()
     waiting_text = State()
 
 
 def _is_admin(user_id: int) -> bool:
     return user_id == BOT_ADMIN_ID
+
+
+def format_user_server(server: dict) -> str:
+    emoji, status_text = server_status(server)
+
+    created = "—"
+    try:
+        dt = datetime.fromisoformat(server["created_at"])
+        created = dt.strftime("%d.%m.%Y")
+    except Exception:
+        pass
+
+    if not server.get("expires_at"):
+        expires = "♾️"
+    else:
+        try:
+            dt = datetime.fromisoformat(server["expires_at"])
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt_msk = dt + MSK_OFFSET
+            expires = dt_msk.strftime("%d.%m.%Y %H:%M") + " (МСК)"
+        except Exception:
+            expires = "—"
+
+    period_code = server.get("period") or "—"
+    period_label = PERIOD_LABELS.get(period_code, period_code)
+    if period_code == "unlimited":
+        period_label = "♾️"
+
+    return (
+        f"🖥️ Название: <b>{server['name']}</b>\n"
+        f"\n"
+        f"{emoji} Статус: <b>{status_text}</b>\n"
+        f"📅 Добавлен: {created}\n"
+        f"⏳ Истекает: {expires}\n"
+        f"🗓 Длительность: {period_label}"
+    )
 
 
 def _pluralize_servers(n: int) -> str:
@@ -101,7 +148,8 @@ def format_server(server: dict) -> str:
     key = server.get("license_key", "—")
 
     return (
-        f"Сервер: <b>{server['name']}</b>\n"
+        f"🖥️ Название: <b>{server['name']}</b>\n"
+        f"\n"
         f"{emoji} Статус: <b>{status_text}</b>\n"
         f"📱 Телеграм ID: {tg_id_display}\n"
         f"🤖 Телеграм бот: {bot_link}\n"
@@ -128,28 +176,103 @@ async def _clear_confirm(state: FSMContext, bot: Bot, chat_id: int):
         except Exception:
             pass
     keys_to_keep = {k: v for k, v in data.items()
-                    if k not in ("confirm_delete", "confirm_blacklist", "confirm_msg_id")}
+                    if k not in ("confirm_delete", "confirm_blacklist", "confirm_send", "confirm_msg_id")}
     await state.set_data(keys_to_keep)
+
+
+async def _settings_kb_full(db: Database) -> InlineKeyboardMarkup:
+    interval = await db.get_check_interval()
+    grace = await db.get_offline_grace_days()
+    support = await db.get_setting("support_url")
+    community = await db.get_setting("community_url")
+    return settings_kb(interval, grace, support, community)
 
 
 # ── /start ────────────────────────────────────────────────────────────────────
 
 @router.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext):
+async def cmd_start(message: Message, state: FSMContext, db: Database):
     await state.clear()
-    if not _is_admin(message.from_user.id):
+    if _is_admin(message.from_user.id):
+        return await message.answer("🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb())
+    # Check if user is a dev for any server
+    servers = await db.find_servers_by_dev_id(message.from_user.id)
+    if not servers:
         return await message.answer("⛔ Нет доступа.")
-    await message.answer("🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb())
+    if len(servers) == 1:
+        server = servers[0]
+        support = await db.get_setting("support_url")
+        community = await db.get_setting("community_url")
+        return await message.answer(
+            format_user_server(server),
+            reply_markup=user_server_kb(server, support, community),
+        )
+    await message.answer(
+        "🖥️ <b>Ваши серверы:</b>",
+        reply_markup=user_servers_kb(servers),
+    )
 
 
 @router.callback_query(F.data == "main")
-async def cb_main_menu(call: CallbackQuery, state: FSMContext):
+async def cb_main_menu(call: CallbackQuery, state: FSMContext, db: Database):
     await _clear_confirm(state, call.bot, call.message.chat.id)
     await state.clear()
-    if not _is_admin(call.from_user.id):
+    if _is_admin(call.from_user.id):
+        await call.message.edit_text("🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb())
+        return await call.answer()
+    # User role — show their servers
+    servers = await db.find_servers_by_dev_id(call.from_user.id)
+    if not servers:
         return await call.answer("⛔")
-    await call.message.edit_text("🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb())
+    if len(servers) == 1:
+        server = servers[0]
+        support = await db.get_setting("support_url")
+        community = await db.get_setting("community_url")
+        await call.message.edit_text(
+            format_user_server(server),
+            reply_markup=user_server_kb(server, support, community),
+        )
+    else:
+        await call.message.edit_text(
+            "🖥️ <b>Ваши серверы:</b>",
+            reply_markup=user_servers_kb(servers),
+        )
     await call.answer()
+
+
+# ── Панель пользователя ───────────────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("us:"))
+async def cb_user_server(call: CallbackQuery, db: Database):
+    server_id = int(call.data.split(":")[1])
+    server = await db.get_server(server_id)
+    if not server:
+        await call.answer("Сервер не найден", show_alert=True)
+        return
+    # Verify user has access
+    dev_ids = (server.get("dev_telegram_ids", "") or "").split(",")
+    if str(call.from_user.id) not in [t.strip() for t in dev_ids]:
+        return await call.answer("⛔")
+    support = await db.get_setting("support_url")
+    community = await db.get_setting("community_url")
+    await call.message.edit_text(
+        format_user_server(server),
+        reply_markup=user_server_kb(server, support, community),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("uext:"))
+async def cb_user_extend(call: CallbackQuery, db: Database):
+    server_id = int(call.data.split(":")[1])
+    server = await db.get_server(server_id)
+    if not server:
+        await call.answer("Сервер не найден", show_alert=True)
+        return
+    dev_ids = (server.get("dev_telegram_ids", "") or "").split(",")
+    if str(call.from_user.id) not in [t.strip() for t in dev_ids]:
+        return await call.answer("⛔")
+    await call.answer("💳 Платежные системы пока не настроены. Обратитесь к администратору.", show_alert=True)
 
 
 # ── Список клиентов ────────────────────────────────────────────────────────────
@@ -542,10 +665,18 @@ async def on_rename(message: Message, state: FSMContext, db: Database):
     await message.answer(text, reply_markup=kb)
 
 
-# ── Отправить сообщение ────────────────────────────────────────────────────────
+# ── Написать сообщение (compose flow) ──────────────────────────────────────────
+
+def _compose_header(server: dict, text: str | None) -> str:
+    preview = f"<blockquote>{text}</blockquote>" if text else "<i>Текст не введён</i>"
+    return (
+        f"✉️ Сообщение для <b>{server['name']}</b>\n\n"
+        f"{preview}"
+    )
+
 
 @router.callback_query(F.data.startswith("msg:"))
-async def cb_send_message(call: CallbackQuery, state: FSMContext, db: Database):
+async def cb_compose_menu(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await _clear_confirm(state, call.bot, call.message.chat.id)
@@ -559,22 +690,36 @@ async def cb_send_message(call: CallbackQuery, state: FSMContext, db: Database):
     if not bot_token or not dev_ids:
         await call.answer("❌ Нет данных бота. Дождитесь проверки лицензии клиентом.", show_alert=True)
         return
-    await state.set_state(SendMessageState.waiting_text)
-    await state.update_data(server_id=server_id,
+    await state.set_state(SendMessageState.composing)
+    await state.update_data(server_id=server_id, compose_text=None,
                             prompt_msg_id=call.message.message_id,
                             prompt_chat_id=call.message.chat.id)
     await call.message.edit_text(
-        f"✉️ Введите сообщение для <b>{server['name']}</b>:\n\n"
-        f"Сообщение будет отправлено DEV-пользователям бота.",
+        _compose_header(server, None),
+        reply_markup=compose_kb(server_id, has_text=False),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("cmt:"))
+async def cb_compose_enter_text(call: CallbackQuery, state: FSMContext):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    server_id = int(call.data.split(":")[1])
+    await state.set_state(SendMessageState.waiting_text)
+    await state.update_data(prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
+    await call.message.edit_text(
+        "📝 Введите текст сообщения:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"s:{server_id}")]
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"msg:{server_id}")]
         ]),
     )
     await call.answer()
 
 
 @router.message(SendMessageState.waiting_text)
-async def on_send_message_text(message: Message, state: FSMContext, db: Database):
+async def on_compose_text(message: Message, state: FSMContext, db: Database):
     if not _is_admin(message.from_user.id):
         return
     try:
@@ -585,27 +730,89 @@ async def on_send_message_text(message: Message, state: FSMContext, db: Database
     server_id = data.get("server_id")
     prompt_msg_id = data.get("prompt_msg_id")
     chat_id = data.get("prompt_chat_id") or message.chat.id
-    await state.clear()
+    compose_text = message.text.strip() if message.text else ""
+    await state.set_state(SendMessageState.composing)
+    await state.update_data(compose_text=compose_text)
+    server = await db.get_server(server_id)
+    text = _compose_header(server, compose_text) if server else "Сервер не найден."
+    kb = compose_kb(server_id, has_text=bool(compose_text)) if server else None
+    if prompt_msg_id:
+        try:
+            await message.bot.edit_message_text(text, chat_id=chat_id,
+                                                 message_id=prompt_msg_id, reply_markup=kb)
+            return
+        except Exception:
+            pass
+    await message.answer(text, reply_markup=kb)
 
+
+@router.callback_query(F.data.startswith("cmp:"))
+async def cb_compose_preview(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    data = await state.get_data()
+    server_id = int(call.data.split(":")[1])
+    compose_text = data.get("compose_text") or ""
+    if not compose_text:
+        await call.answer("Нет текста для предпросмотра", show_alert=True)
+        return
     server = await db.get_server(server_id)
     if not server:
-        try:
-            await message.bot.edit_message_text("Сервер не найден.", chat_id=chat_id,
-                                                 message_id=prompt_msg_id)
-        except Exception:
-            await message.answer("Сервер не найден.")
+        await call.answer("Сервер не найден", show_alert=True)
+        return
+    # Send preview as a separate message (as client would see it)
+    preview_text = (
+        "📩 <b>Сообщение от администратора лицензий</b>\n\n"
+        f"{compose_text}"
+    )
+    preview_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_preview")]
+    ])
+    await call.message.answer(f"👁 <b>Предпросмотр:</b>\n\n{preview_text}", reply_markup=preview_kb)
+    await call.answer()
+
+
+@router.callback_query(F.data == "dismiss_preview")
+async def cb_dismiss_preview(call: CallbackQuery):
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("cms:"))
+async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    data = await state.get_data()
+    server_id = int(call.data.split(":")[1])
+    compose_text = data.get("compose_text") or ""
+    if not compose_text:
+        await call.answer("Нет текста для отправки", show_alert=True)
         return
 
-    bot_token = server.get("bot_token", "") or ""
-    dev_ids_raw = server.get("dev_telegram_ids", "") or ""
-    dev_ids = [tid.strip() for tid in dev_ids_raw.split(",") if tid.strip()]
+    # Double-click confirm
+    if data.get("confirm_send") == server_id:
+        pending_msg_id = data.get("confirm_msg_id")
+        if pending_msg_id:
+            try:
+                await call.bot.delete_message(call.message.chat.id, pending_msg_id)
+            except Exception:
+                pass
+        await state.update_data(confirm_send=None, confirm_msg_id=None)
 
-    if not bot_token or not dev_ids:
-        text = "❌ Нет данных бота для отправки."
-    else:
+        server = await db.get_server(server_id)
+        if not server:
+            await call.answer("Сервер не найден", show_alert=True)
+            return
+        bot_token = server.get("bot_token", "") or ""
+        dev_ids_raw = server.get("dev_telegram_ids", "") or ""
+        dev_ids = [tid.strip() for tid in dev_ids_raw.split(",") if tid.strip()]
+
         msg_text = (
             "📩 <b>Сообщение от администратора лицензий</b>\n\n"
-            f"{message.text}"
+            f"{compose_text}"
         )
         sent_ok = 0
         for tid in dev_ids:
@@ -629,17 +836,32 @@ async def on_send_message_text(message: Message, state: FSMContext, db: Database
                             sent_ok += 1
             except Exception:
                 pass
-        text = f"✅ Сообщение отправлено ({sent_ok}/{len(dev_ids)})\n\n{format_server(server)}"
 
-    if prompt_msg_id:
-        try:
-            await message.bot.edit_message_text(text, chat_id=chat_id,
-                                                 message_id=prompt_msg_id,
-                                                 reply_markup=server_detail_kb(server))
-            return
-        except Exception:
-            pass
-    await message.answer(text, reply_markup=server_detail_kb(server) if server else None)
+        await state.clear()
+        await call.message.edit_text(
+            f"✅ Сообщение отправлено ({sent_ok}/{len(dev_ids)})\n\n{format_server(server)}",
+            reply_markup=server_detail_kb(server),
+        )
+        await call.answer("✅ Отправлено")
+    else:
+        await _clear_confirm(state, call.bot, call.message.chat.id)
+        notify = await call.message.answer(
+            "⚠️ Нажмите <b>Отправить</b> ещё раз для подтверждения"
+        )
+        await state.update_data(confirm_send=server_id, confirm_msg_id=notify.message_id)
+
+        async def _auto_clear():
+            await asyncio.sleep(5)
+            try:
+                await notify.delete()
+            except Exception:
+                pass
+            cur = await state.get_data()
+            if cur.get("confirm_send") == server_id:
+                await state.update_data(confirm_send=None, confirm_msg_id=None)
+
+        asyncio.create_task(_auto_clear())
+        await call.answer()
 
 
 # ── Настройки ──────────────────────────────────────────────────────────────────
@@ -649,9 +871,7 @@ async def cb_settings_menu(call: CallbackQuery, state: FSMContext, db: Database)
     await state.clear()
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
-    interval = await db.get_check_interval()
-    grace = await db.get_offline_grace_days()
-    await call.message.edit_text("⚙️ <b>Настройки</b>", reply_markup=settings_kb(interval, grace))
+    await call.message.edit_text("⚙️ <b>Настройки</b>", reply_markup=await _settings_kb_full(db))
     await call.answer()
 
 
@@ -678,10 +898,9 @@ async def on_interval_input(message: Message, state: FSMContext, db: Database):
         return await message.answer("❌ Введите число от 1 до 1440.")
     await db.set_check_interval(val)
     await state.clear()
-    grace = await db.get_offline_grace_days()
     await message.answer(
         f"✅ Интервал обновлён: <b>{val} мин.</b>\n\n⚙️ <b>Настройки</b>",
-        reply_markup=settings_kb(val, grace),
+        reply_markup=await _settings_kb_full(db),
     )
 
 
@@ -710,10 +929,69 @@ async def on_offline_grace_input(message: Message, state: FSMContext, db: Databa
         return await message.answer("❌ Введите число от 1 до 365.")
     await db.set_offline_grace_days(val)
     await state.clear()
-    interval = await db.get_check_interval()
     await message.answer(
         f"✅ Автономность обновлена: <b>{val} дн.</b>\n\n⚙️ <b>Настройки</b>",
-        reply_markup=settings_kb(interval, val),
+        reply_markup=await _settings_kb_full(db),
+    )
+
+
+# ── Ссылка на поддержку ────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "settings_support_url")
+async def cb_settings_support_url(call: CallbackQuery, state: FSMContext):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await state.set_state(SettingsSupportUrlState.waiting_url)
+    await call.message.edit_text(
+        "🆘 Введите ссылку на поддержку (например, https://t.me/support_bot).\n"
+        "Отправьте <code>-</code> чтобы очистить.",
+    )
+    await call.answer()
+
+
+@router.message(SettingsSupportUrlState.waiting_url)
+async def on_support_url_input(message: Message, state: FSMContext, db: Database):
+    if not _is_admin(message.from_user.id):
+        return
+    raw = message.text.strip()
+    if raw == "-":
+        raw = ""
+    await db.set_setting("support_url", raw)
+    await state.clear()
+    label = raw or "очищена"
+    await message.answer(
+        f"✅ Поддержка: <b>{label}</b>\n\n⚙️ <b>Настройки</b>",
+        reply_markup=await _settings_kb_full(db),
+    )
+
+
+# ── Ссылка на сообщество ──────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "settings_community_url")
+async def cb_settings_community_url(call: CallbackQuery, state: FSMContext):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await state.set_state(SettingsCommunityUrlState.waiting_url)
+    await call.message.edit_text(
+        "👥 Введите ссылку на сообщество (например, https://t.me/community_group).\n"
+        "Отправьте <code>-</code> чтобы очистить.",
+    )
+    await call.answer()
+
+
+@router.message(SettingsCommunityUrlState.waiting_url)
+async def on_community_url_input(message: Message, state: FSMContext, db: Database):
+    if not _is_admin(message.from_user.id):
+        return
+    raw = message.text.strip()
+    if raw == "-":
+        raw = ""
+    await db.set_setting("community_url", raw)
+    await state.clear()
+    label = raw or "очищена"
+    await message.answer(
+        f"✅ Сообщество: <b>{label}</b>\n\n⚙️ <b>Настройки</b>",
+        reply_markup=await _settings_kb_full(db),
     )
 
 
