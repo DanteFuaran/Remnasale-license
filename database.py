@@ -125,6 +125,16 @@ class LicenseDB:
                 )
             """)
 
+            # Пользователи
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    telegram_id INTEGER PRIMARY KEY,
+                    full_name TEXT DEFAULT '',
+                    username TEXT DEFAULT '',
+                    registered_at TEXT NOT NULL
+                )
+            """)
+
             await db.commit()
 
     async def _fetch_one(self, query: str, params: tuple = ()) -> Optional[dict]:
@@ -570,6 +580,39 @@ class LicenseDB:
             )
             await db.commit()
             return await self.get_server(cursor.lastrowid)
+
+    # ── Пользователи ──────────────────────────────────────────────────
+
+    async def get_user(self, telegram_id: int) -> Optional[dict]:
+        return await self._fetch_one("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+
+    async def register_user(self, telegram_id: int, full_name: str = "", username: str = "") -> tuple[dict, bool]:
+        """Возвращает (user, is_new). is_new=True если пользователь только что создан."""
+        existing = await self.get_user(telegram_id)
+        if existing:
+            # Обновляем имя/юзернейм
+            async with aiosqlite.connect(self.path) as db:
+                await db.execute(
+                    "UPDATE users SET full_name = ?, username = ? WHERE telegram_id = ?",
+                    (full_name, username, telegram_id),
+                )
+                await db.commit()
+            return await self.get_user(telegram_id), False
+        now = datetime.now(timezone.utc).isoformat()
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "INSERT INTO users (telegram_id, full_name, username, registered_at) VALUES (?, ?, ?, ?)",
+                (telegram_id, full_name, username, now),
+            )
+            await db.commit()
+        return await self.get_user(telegram_id), True
+
+    async def get_all_users(self) -> list[dict]:
+        return await self._fetch_all("SELECT * FROM users ORDER BY registered_at DESC")
+
+    async def get_users_count(self) -> int:
+        row = await self._fetch_one("SELECT COUNT(*) as cnt FROM users")
+        return row["cnt"] if row else 0
 
 
 Database = LicenseDB

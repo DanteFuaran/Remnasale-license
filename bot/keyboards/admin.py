@@ -89,6 +89,7 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
     blk_text = "🔓 Разблокировать" if is_blacklisted else "🚫 Заблокировать"
 
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔑 Показать ключ", callback_data=f"showkey:{sid}")],
         [
             InlineKeyboardButton(text="🔄 Продлить",   callback_data=f"ext:{sid}"),
             InlineKeyboardButton(text=toggle_text,     callback_data=f"tog:{sid}"),

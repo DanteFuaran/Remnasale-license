@@ -44,3 +44,11 @@ class PurchaseState(StatesGroup):
 
 class BrandingBannerState(StatesGroup):
     waiting_photo = State()
+
+
+class AutoBackupTokenState(StatesGroup):
+    waiting_token = State()
+
+
+class AutoBackupChatIdState(StatesGroup):
+    waiting_chat_id = State()

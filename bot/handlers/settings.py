@@ -73,7 +73,6 @@ async def cb_settings_interval(call: CallbackQuery, state: FSMContext):
         "🔄 Введите интервал проверки в <b>минутах</b> (1–1440):",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="❌ Отмена", callback_data="settings_sync", style="danger")],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary")],
         ]),
     )
     await call.answer()
@@ -125,7 +124,6 @@ async def cb_settings_offline_grace(call: CallbackQuery, state: FSMContext):
         "📡 Введите количество <b>дней</b> автономной работы (1–365):",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="❌ Отмена", callback_data="settings_sync", style="danger")],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary")],
         ]),
     )
     await call.answer()

@@ -66,11 +66,67 @@ def backup_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 Сохранить бэкап", callback_data="backup_save")],
         [InlineKeyboardButton(text="📤 Загрузить бэкап", callback_data="backup_load")],
+        [InlineKeyboardButton(text="⚙️ Настройка автобэкапа", callback_data="autobackup_menu")],
         [
             InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
             InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
         ],
     ])
+
+
+FREQ_LABELS = {
+    "hourly": "⏱ Каждый час",
+    "daily": "📅 Ежедневно",
+    "weekly": "📆 Еженедельно",
+    "monthly": "🗓 Ежемесячно",
+}
+
+
+def autobackup_settings_kb(settings: dict) -> InlineKeyboardMarkup:
+    enabled = settings.get("enabled") == "1"
+    silent = settings.get("silent_mode") == "1"
+    freq = settings.get("frequency", "daily")
+    freq_label = FREQ_LABELS.get(freq, freq)
+
+    token_raw = settings.get("bot_token", "")
+    token_display = f"{token_raw[:8]}..." if token_raw else "Не назначен"
+    chat_id = settings.get("chat_id", "") or "Не назначен"
+
+    toggle_text = "🟢 Вкл" if enabled else "🔴 Выкл"
+    silent_text = "🔕 Вкл" if silent else "🔔 Выкл"
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📦 Автобэкап", callback_data="_noop"),
+            InlineKeyboardButton(text=toggle_text, callback_data="autobackup_toggle"),
+        ],
+        [
+            InlineKeyboardButton(text="🔇 Тихий режим", callback_data="_noop"),
+            InlineKeyboardButton(text=silent_text, callback_data="autobackup_silent"),
+        ],
+        [
+            InlineKeyboardButton(text=f"🤖 Бот: {token_display}", callback_data="autobackup_set_token"),
+        ],
+        [
+            InlineKeyboardButton(text=f"👤 Получатель: {chat_id}", callback_data="autobackup_set_chat"),
+        ],
+        [
+            InlineKeyboardButton(text=f"🕐 Частота: {freq_label}", callback_data="autobackup_set_freq"),
+        ],
+        [InlineKeyboardButton(text="📤 Отправить бэкап сейчас", callback_data="autobackup_force")],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="backup_menu", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
+        ],
+    ])
+
+
+def autobackup_freq_kb() -> InlineKeyboardMarkup:
+    buttons = []
+    for key, label in FREQ_LABELS.items():
+        buttons.append([InlineKeyboardButton(text=label, callback_data=f"abfreq:{key}")])
+    buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="autobackup_menu", style="danger")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def payments_kb(gateways: list[dict]) -> InlineKeyboardMarkup:

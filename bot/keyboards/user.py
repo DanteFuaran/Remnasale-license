@@ -33,7 +33,8 @@ def user_servers_kb(servers: list[dict]) -> InlineKeyboardMarkup:
 def user_server_kb(server: dict, support_url: str = "", community_url: str = "") -> InlineKeyboardMarkup:
     sid = server["id"]
     buttons = [
-        [InlineKeyboardButton(text="🔄 Продлить", callback_data=f"uext:{sid}")],
+        [InlineKeyboardButton(text="� Показать ключ", callback_data=f"showkey:{sid}")],
+        [InlineKeyboardButton(text="�🔄 Продлить", callback_data=f"uext:{sid}")],
     ]
     link_row = []
     if support_url:
@@ -63,7 +64,8 @@ def user_view_servers_kb(servers: list[dict]) -> InlineKeyboardMarkup:
 def user_view_server_kb(server: dict, support_url: str = "", community_url: str = "") -> InlineKeyboardMarkup:
     sid = server["id"]
     buttons = [
-        [InlineKeyboardButton(text="🔄 Продлить", callback_data=f"uext:{sid}")],
+        [InlineKeyboardButton(text="� Показать ключ", callback_data=f"showkey:{sid}")],
+        [InlineKeyboardButton(text="�🔄 Продлить", callback_data=f"uext:{sid}")],
     ]
     link_row = []
     if support_url:
