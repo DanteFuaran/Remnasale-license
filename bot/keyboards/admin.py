@@ -8,7 +8,7 @@ def main_menu_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📋 Список клиентов", callback_data="clients")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="stats")],
         [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings_menu")],
-        [InlineKeyboardButton(text="🔄 Смена роли", callback_data="role_switch")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary")],
     ])
 
 

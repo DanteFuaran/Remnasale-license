@@ -323,10 +323,7 @@ async def cb_branding_menu(call: CallbackQuery, state: FSMContext, db: Database)
         return await call.answer("⛔")
     banner = await db.get_setting("banner_file_id")
     kb = branding_kb(has_banner=bool(banner))
-    if banner:
-        text = "🎨 <b>Брендирование</b>\n\n✅ Банер установлен. Показывается при /start."
-    else:
-        text = "🎨 <b>Брендирование</b>\n\n❌ Банер не установлен."
+    text = "🎨 <b>Брендирование</b>\n\nВыберите нужный пункт"
     await show(call, text, reply_markup=kb, banner=banner or "")
     await call.answer()
 
@@ -342,7 +339,6 @@ async def cb_branding_change_banner(call: CallbackQuery, state: FSMContext, db: 
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отмена", callback_data="branding_menu", style="danger")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary")],
     ])
     banner = await db.get_setting("banner_file_id")
     await show(call, "🖼 <b>Загрузка банера</b>\n\n"
@@ -369,10 +365,11 @@ async def on_banner_photo(message: Message, state: FSMContext, db: Database):
     await state.clear()
     note = await message.answer("✅ Банер успешно установлен!")
     asyncio.create_task(_auto_delete_s(message.bot, message.chat.id, note.message_id))
+    await state.update_data(_notification_id=note.message_id)
     prompt_msg_id = data.get("prompt_msg_id")
     chat_id = data.get("prompt_chat_id") or message.chat.id
     kb = branding_kb(has_banner=True)
-    text = "🎨 <b>Брендирование</b>\n\n✅ Банер установлен."
+    text = "🎨 <b>Брендирование</b>\n\nВыберите нужный пункт"
     if prompt_msg_id:
         from bot.banner import edit_prompt
         await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, banner=file_id)

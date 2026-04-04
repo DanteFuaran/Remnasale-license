@@ -37,7 +37,7 @@ async def main():
     await site.start()
     logger.info(f"API server started on {API_HOST}:{API_PORT}")
 
-    asyncio.create_task(autobackup_loop(db))
+    asyncio.create_task(autobackup_loop(db, bot))
     logger.info("Autobackup scheduler started")
 
     try:

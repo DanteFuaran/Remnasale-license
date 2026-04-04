@@ -129,9 +129,11 @@ async def _auto_delete(bot: Bot, chat_id: int, message_id: int, delay: int = 5):
         pass
 
 
-async def _notify(call: CallbackQuery, text: str, delay: int = 5):
+async def _notify(call: CallbackQuery, text: str, delay: int = 5, state=None):
     note = await call.message.answer(text)
     asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id, delay))
+    if state is not None:
+        await state.update_data(_notification_id=note.message_id)
     await call.answer()
 
 
@@ -229,14 +231,14 @@ async def cb_autobackup_accept(call: CallbackQuery, state: FSMContext, db: Datab
 
 
 @router.callback_query(F.data == "autobackup_toggle")
-async def cb_autobackup_toggle(call: CallbackQuery, db: Database):
+async def cb_autobackup_toggle(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     settings = await _get_autobackup_settings(db)
     # Если пытаемся включить — проверяем наличие токена и получателя
     if settings["enabled"] != "1":
         if not settings["bot_token"] or not settings["chat_id"]:
-            await _notify(call, "⚠️ Сначала укажите токен бота и ID получателя")
+            await _notify(call, "⚠️ Сначала укажите токен бота и ID получателя", state=state)
             return
     new_val = "0" if settings["enabled"] == "1" else "1"
     await db.set_setting("autobackup_enabled", new_val)
@@ -369,17 +371,17 @@ async def cb_autobackup_force(call: CallbackQuery, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     settings = await _get_autobackup_settings(db)
-    await call.answer("⏳ Отправляем бэкап...")
+    await call.answer()
+    # Ручная отправка: всегда отправляем и на configured recipient и в наш чат
+    # (тихий режим на ручную отправку не влияет)
     if settings["bot_token"] and settings["chat_id"]:
-        success = await send_autobackup(db, manual=True)
-        if not success:
-            note = await call.message.answer("❌ Ошибка отправки бэкапа.")
-            asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
-    else:
-        success = await send_autobackup_local(db, call.bot, call.message.chat.id)
-        if not success:
-            note = await call.message.answer("❌ Ошибка отправки бэкапа.")
-            asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
+        await send_autobackup(db, manual=True)
+    # Всегда также отправляем в текущий чат бота
+    success = await send_autobackup_local(db, call.bot, call.message.chat.id,
+                                          update_last_at=not bool(settings["bot_token"] and settings["chat_id"]))
+    if not success:
+        note = await call.message.answer("❌ Ошибка отправки бэкапа.")
+        asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
     # Обновляем меню
     settings = await _get_autobackup_settings(db)
     banner = await db.get_setting("banner_file_id")
@@ -454,7 +456,7 @@ async def send_autobackup(db: Database, manual: bool = False) -> bool:
         return False
 
 
-async def send_autobackup_local(db: Database, bot: Bot, chat_id: int) -> bool:
+async def send_autobackup_local(db: Database, bot: Bot, chat_id: int, update_last_at: bool = True) -> bool:
     """Отправляет бэкап через текущий бот в указанный чат (без внешнего бота)."""
     raw = await db.export_sql_gz()
     filename = _backup_filename()
@@ -466,19 +468,24 @@ async def send_autobackup_local(db: Database, bot: Bot, chat_id: int) -> bool:
                                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                                     [InlineKeyboardButton(text="✅ Закрыть", callback_data="close_backup_doc", style="success")],
                                 ]))
-        now_iso = datetime.now(timezone.utc).isoformat()
-        await db.set_setting("autobackup_last_at", now_iso)
+        if update_last_at:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            await db.set_setting("autobackup_last_at", now_iso)
         return True
     except Exception:
         return False
 
 
-async def autobackup_loop(db: Database):
+async def autobackup_loop(db: Database, bot: Bot = None):
     """Фоново проверяет нужно ли делать автобэкап (запускается из main.py)."""
     while True:
         try:
             if await _should_run_autobackup(db):
+                settings = await _get_autobackup_settings(db)
                 await send_autobackup(db, manual=False)
+                # Если тихий режим выключен — также отправляем в чат лиц-бота
+                if settings.get("silent_mode") != "1" and bot is not None:
+                    await send_autobackup_local(db, bot, BOT_ADMIN_ID, update_last_at=False)
         except Exception:
             pass
         await asyncio.sleep(60)  # Проверяем каждую минуту

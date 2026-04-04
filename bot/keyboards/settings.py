@@ -5,7 +5,6 @@ def setting_edit_kb(clear_cb: str, back_cb: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🗑 Очистить", callback_data=clear_cb, style="danger")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data=back_cb, style="danger")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary")],
     ])
 
 
@@ -16,7 +15,6 @@ def setting_edit_pending_kb(accept_cb: str, clear_cb: str, back_cb: str) -> Inli
             InlineKeyboardButton(text="❌ Отмена", callback_data=back_cb, style="danger"),
             InlineKeyboardButton(text="✅ Принять", callback_data=accept_cb, style="success"),
         ],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary")],
     ])
 
 
@@ -30,7 +28,10 @@ def settings_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="💳 Платёжные системы", callback_data="settings_payments")],
         [InlineKeyboardButton(text="💾 Управление БД", callback_data="backup_menu")],
         [InlineKeyboardButton(text="🎨 Брендирование", callback_data="branding_menu")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel", style="primary")],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+        ],
     ])
 
 
@@ -40,7 +41,7 @@ def branding_kb(has_banner: bool = False) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=action_text, callback_data="branding_change_banner")],
         [
             InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
         ],
     ])
 
