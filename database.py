@@ -29,6 +29,7 @@ class LicenseDB:
                     server_ip TEXT DEFAULT '',
                     period TEXT NOT NULL DEFAULT '1m',
                     is_active INTEGER DEFAULT 1,
+                    is_blacklisted INTEGER DEFAULT 0,
                     created_at TEXT NOT NULL,
                     expires_at TEXT,
                     last_check_at TEXT
@@ -40,9 +41,12 @@ class LicenseDB:
                     value TEXT NOT NULL
                 )
             """)
-            # Значение по умолчанию для интервала проверки
+            # Значения по умолчанию
             await db.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES ('check_interval_minutes', '1')"
+            )
+            await db.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES ('offline_grace_days', '14')"
             )
             # Миграции
             cursor = await db.execute("PRAGMA table_info(servers)")
@@ -51,6 +55,8 @@ class LicenseDB:
                 await db.execute("ALTER TABLE servers RENAME COLUMN server_domain TO server_ip")
             elif "server_ip" not in columns and "server_domain" not in columns:
                 await db.execute("ALTER TABLE servers ADD COLUMN server_ip TEXT DEFAULT ''")
+            if "is_blacklisted" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN is_blacklisted INTEGER DEFAULT 0")
             await db.commit()
 
     async def _fetch_one(self, query: str, params: tuple = ()) -> Optional[dict]:
@@ -76,12 +82,13 @@ class LicenseDB:
     async def get_server_by_key(self, key: str) -> Optional[dict]:
         return await self._fetch_one("SELECT * FROM servers WHERE license_key = ?", (key,))
 
-    async def add_server(self, period: str) -> dict:
+    async def add_server(self, name: str, period: str) -> dict:
         key = secrets.token_hex(20)
         now = datetime.now(timezone.utc)
 
-        servers = await self.get_all_servers()
-        name = f"Сервер {len(servers) + 1}"
+        if not name:
+            servers = await self.get_all_servers()
+            name = f"Сервер {len(servers) + 1}"
 
         _, days = PERIODS.get(period, ("", 30))
         expires = (now + timedelta(days=days)).isoformat() if days else None
@@ -101,6 +108,30 @@ class LicenseDB:
         new_status = 0 if server["is_active"] else 1
         async with aiosqlite.connect(self.path) as db:
             await db.execute("UPDATE servers SET is_active = ? WHERE id = ?", (new_status, server_id))
+            await db.commit()
+        return await self.get_server(server_id)
+
+    async def set_server_active(self, server_id: int, is_active: int) -> Optional[dict]:
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE servers SET is_active = ? WHERE id = ?", (is_active, server_id))
+            await db.commit()
+        return await self.get_server(server_id)
+
+    async def blacklist_server(self, server_id: int) -> Optional[dict]:
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE servers SET is_active = 0, is_blacklisted = 1 WHERE id = ?",
+                (server_id,),
+            )
+            await db.commit()
+        return await self.get_server(server_id)
+
+    async def unblacklist_server(self, server_id: int) -> Optional[dict]:
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE servers SET is_active = 1, is_blacklisted = 0 WHERE id = ?",
+                (server_id,),
+            )
             await db.commit()
         return await self.get_server(server_id)
 
@@ -144,6 +175,9 @@ class LicenseDB:
             await db.commit()
         return await self.get_server(server_id)
 
+    async def reset_server_ip(self, server_id: int) -> Optional[dict]:
+        return await self.reset_ip(server_id)
+
     async def reset_ip_by_key(self, key: str, server_ip: str) -> dict:
         server = await self.get_server_by_key(key)
         if not server:
@@ -166,6 +200,9 @@ class LicenseDB:
 
         if not server:
             return {"valid": False, "reason": "not_found"}
+
+        if server.get("is_blacklisted"):
+            return {"valid": False, "reason": "blacklisted"}
 
         if not server["is_active"]:
             return {"valid": False, "reason": "suspended"}
@@ -196,7 +233,8 @@ class LicenseDB:
             )
             await db.commit()
 
-        result = {"valid": True}
+        offline_grace_days = await self.get_offline_grace_days()
+        result = {"valid": True, "offline_grace_days": offline_grace_days}
         if server["expires_at"]:
             result["expires_at"] = server["expires_at"]
         return result
@@ -236,3 +274,53 @@ class LicenseDB:
 
     async def set_check_interval(self, minutes: int):
         await self.set_setting("check_interval_minutes", str(max(1, minutes)))
+
+    async def get_offline_grace_days(self) -> int:
+        val = await self.get_setting("offline_grace_days", "14")
+        try:
+            return max(1, int(val))
+        except (ValueError, TypeError):
+            return 14
+
+    async def set_offline_grace_days(self, days: int):
+        await self.set_setting("offline_grace_days", str(max(1, days)))
+
+    async def export_backup(self) -> dict:
+        servers = await self.get_all_servers()
+        interval = await self.get_check_interval()
+        grace = await self.get_offline_grace_days()
+        return {"servers": servers, "settings": {"check_interval_minutes": interval, "offline_grace_days": grace}}
+
+    async def import_backup(self, data: dict):
+        servers = data.get("servers", [])
+        settings = data.get("settings", {})
+        async with aiosqlite.connect(self.path) as db:
+            for s in servers:
+                await db.execute(
+                    """
+                    INSERT OR REPLACE INTO servers
+                    (id, name, license_key, server_ip, period, is_active, is_blacklisted, created_at, expires_at, last_check_at)
+                    VALUES (:id, :name, :license_key, :server_ip, :period, :is_active, :is_blacklisted, :created_at, :expires_at, :last_check_at)
+                    """,
+                    {
+                        "id": s.get("id"),
+                        "name": s.get("name", ""),
+                        "license_key": s.get("license_key", ""),
+                        "server_ip": s.get("server_ip", ""),
+                        "period": s.get("period", "1m"),
+                        "is_active": s.get("is_active", 1),
+                        "is_blacklisted": s.get("is_blacklisted", 0),
+                        "created_at": s.get("created_at", ""),
+                        "expires_at": s.get("expires_at"),
+                        "last_check_at": s.get("last_check_at"),
+                    },
+                )
+            for key, val in settings.items():
+                await db.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    (key, str(val)),
+                )
+            await db.commit()
+
+
+Database = LicenseDB

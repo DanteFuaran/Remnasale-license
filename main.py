@@ -24,6 +24,7 @@ async def main():
 
     app = web.Application()
     app["db"] = db
+    app["bot"] = bot
     setup_routes(app)
     runner = web.AppRunner(app)
     await runner.setup()

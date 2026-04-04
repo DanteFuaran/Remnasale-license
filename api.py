@@ -2,7 +2,7 @@ import logging
 import os
 import time
 from aiohttp import web, ClientSession, ClientTimeout
-from config import GITHUB_PAT, GITHUB_REPO
+from config import GITHUB_PAT, GITHUB_REPO, BOT_ADMIN_ID
 
 logger = logging.getLogger(__name__)
 
@@ -194,9 +194,48 @@ async def handle_install_script(request: web.Request) -> web.Response:
         return web.Response(status=502, text="Failed to fetch install script")
 
 
+async def handle_notify_offline(request: web.Request) -> web.Response:
+    db = request.app["db"]
+    bot = request.app.get("bot")
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "reason": "invalid_body"}, status=400)
+
+    license_key = data.get("license_key", "").strip()
+    server_ip = data.get("server_ip", "").strip()
+    days_left = int(data.get("days_left", 0))
+    event = data.get("event", "offline")
+
+    server = await db.get_server_by_key(license_key)
+    server_name = server["name"] if server else (license_key[:16] if license_key else "???")
+
+    if bot and BOT_ADMIN_ID:
+        if event == "online":
+            text = (
+                f"\U0001f7e2 <b>\u0421\u0432\u044f\u0437\u044c \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0430</b>\n\n"
+                f"\u0421\u0435\u0440\u0432\u0435\u0440: <b>{server_name}</b>\n"
+                f"IP: <code>{server_ip}</code>"
+            )
+        else:
+            text = (
+                f"\U0001f7e1 <b>\u041a\u043b\u0438\u0435\u043d\u0442 \u043f\u043e\u0442\u0435\u0440\u044f\u043b \u0441\u0432\u044f\u0437\u044c</b>\n\n"
+                f"\u0421\u0435\u0440\u0432\u0435\u0440: <b>{server_name}</b>\n"
+                f"IP: <code>{server_ip}</code>\n"
+                f"\u0410\u0432\u0442\u043e\u043d\u043e\u043c\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0442\u0430: <b>{days_left} \u0434\u043d.</b>"
+            )
+        try:
+            await bot.send_message(BOT_ADMIN_ID, text)
+        except Exception as e:
+            logger.warning(f"[notify_offline] Failed to send TG message: {e}")
+
+    return web.json_response({"success": True})
+
+
 def setup_routes(app: web.Application):
     app.router.add_post("/api/v1/license/verify", handle_verify)
     app.router.add_post("/api/v1/license/release", handle_release)
+    app.router.add_post("/api/v1/notify/offline", handle_notify_offline)
     app.router.add_get("/api/v1/version", handle_version)
     app.router.add_get("/api/v1/download", handle_download)
     app.router.add_get("/api/v1/install/script", handle_install_script)
