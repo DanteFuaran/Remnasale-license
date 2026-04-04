@@ -17,7 +17,7 @@ from database import Database
 from bot.keyboards import (
     main_menu_kb, clients_kb, period_kb, add_period_kb, cancel_kb,
     server_detail_kb, backup_kb, settings_kb, compose_kb,
-    user_servers_kb, user_server_kb,
+    user_servers_kb, user_server_kb, setting_edit_kb,
     server_status, PERIOD_LABELS,
 )
 
@@ -330,7 +330,7 @@ async def cb_stats(call: CallbackQuery, db: Database):
             active += 1
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main")]
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary")]
     ])
     await call.message.edit_text(
         "📊 <b>Статистика</b>\n\n"
@@ -634,7 +634,7 @@ async def cb_rename(call: CallbackQuery, state: FSMContext):
                             prompt_chat_id=call.message.chat.id)
     await call.message.edit_text("✏️ Введите новое название сервера:",
                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                                     [InlineKeyboardButton(text="❌ Отмена", callback_data=f"s:{server_id}")]
+                                     [InlineKeyboardButton(text="❌ Отмена", callback_data=f"s:{server_id}", style="danger")]
                                  ]))
     await call.answer()
 
@@ -712,7 +712,7 @@ async def cb_compose_enter_text(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text(
         "📝 Введите текст сообщения:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"msg:{server_id}")]
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"msg:{server_id}", style="danger")]
         ]),
     )
     await call.answer()
@@ -766,7 +766,7 @@ async def cb_compose_preview(call: CallbackQuery, state: FSMContext, db: Databas
         f"{compose_text}"
     )
     preview_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_preview")]
+        [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_preview", style="success")]
     ])
     await call.message.answer(f"👁 <b>Предпросмотр:</b>\n\n{preview_text}", reply_markup=preview_kb)
     await call.answer()
@@ -824,7 +824,7 @@ async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
                         "parse_mode": "HTML",
                         "reply_markup": {
                             "inline_keyboard": [[
-                                {"text": "✅ Закрыть", "callback_data": "license_warning_close"}
+                                {"text": "✅ Закрыть", "callback_data": "license_warning_close", "style": "success"}
                             ]]
                         },
                     }
@@ -935,16 +935,42 @@ async def on_offline_grace_input(message: Message, state: FSMContext, db: Databa
     )
 
 
-# ── Ссылка на поддержку ────────────────────────────────────────────────────────
+# ── Настройка поддержки ────────────────────────────────────────────────────────
+
+def _support_edit_text(current: str) -> str:
+    display = current or "Не указана"
+    return (
+        "🆘 <b>Настройка поддержки</b>\n\n"
+        f"<blockquote>🆘 Поддержка: {display}</blockquote>\n\n"
+        "ℹ️ <i>Введите имя бота или группы поддержки без https://t.me "
+        "(например <b>support_bot</b>).</i>"
+    )
+
 
 @router.callback_query(F.data == "settings_support_url")
-async def cb_settings_support_url(call: CallbackQuery, state: FSMContext):
+async def cb_settings_support_url(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await state.set_state(SettingsSupportUrlState.waiting_url)
+    current = await db.get_setting("support_url")
+    await state.update_data(prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
     await call.message.edit_text(
-        "🆘 Введите ссылку на поддержку (например, https://t.me/support_bot).\n"
-        "Отправьте <code>-</code> чтобы очистить.",
+        _support_edit_text(current),
+        reply_markup=setting_edit_kb(current, "clear_support", "settings_menu"),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "clear_support")
+async def cb_clear_support(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await db.set_setting("support_url", "")
+    await state.clear()
+    await call.message.edit_text(
+        "✅ Поддержка очищена\n\n⚙️ <b>Настройки</b>",
+        reply_markup=await _settings_kb_full(db),
     )
     await call.answer()
 
@@ -953,28 +979,64 @@ async def cb_settings_support_url(call: CallbackQuery, state: FSMContext):
 async def on_support_url_input(message: Message, state: FSMContext, db: Database):
     if not _is_admin(message.from_user.id):
         return
-    raw = message.text.strip()
-    if raw == "-":
-        raw = ""
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    raw = message.text.strip().removeprefix("https://t.me/").removeprefix("http://t.me/").removeprefix("t.me/").removeprefix("@")
     await db.set_setting("support_url", raw)
     await state.clear()
-    label = raw or "очищена"
-    await message.answer(
-        f"✅ Поддержка: <b>{label}</b>\n\n⚙️ <b>Настройки</b>",
-        reply_markup=await _settings_kb_full(db),
+    data = await state.get_data()
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    text = f"✅ Поддержка: <b>{raw}</b>\n\n⚙️ <b>Настройки</b>"
+    kb = await _settings_kb_full(db)
+    if prompt_msg_id:
+        try:
+            await message.bot.edit_message_text(text, chat_id=chat_id,
+                                                 message_id=prompt_msg_id, reply_markup=kb)
+            return
+        except Exception:
+            pass
+    await message.answer(text, reply_markup=kb)
+
+
+# ── Настройка сообщества ──────────────────────────────────────────────────────
+
+def _community_edit_text(current: str) -> str:
+    display = current or "Не указано"
+    return (
+        "👥 <b>Настройка сообщества</b>\n\n"
+        f"<blockquote>👥 Сообщество: {display}</blockquote>\n\n"
+        "ℹ️ <i>Введите ссылку сообщества (группы) без https://t.me "
+        "(например <b>support_group</b>).</i>"
     )
 
 
-# ── Ссылка на сообщество ──────────────────────────────────────────────────────
-
 @router.callback_query(F.data == "settings_community_url")
-async def cb_settings_community_url(call: CallbackQuery, state: FSMContext):
+async def cb_settings_community_url(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await state.set_state(SettingsCommunityUrlState.waiting_url)
+    current = await db.get_setting("community_url")
+    await state.update_data(prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
     await call.message.edit_text(
-        "👥 Введите ссылку на сообщество (например, https://t.me/community_group).\n"
-        "Отправьте <code>-</code> чтобы очистить.",
+        _community_edit_text(current),
+        reply_markup=setting_edit_kb(current, "clear_community", "settings_menu"),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "clear_community")
+async def cb_clear_community(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await db.set_setting("community_url", "")
+    await state.clear()
+    await call.message.edit_text(
+        "✅ Сообщество очищено\n\n⚙️ <b>Настройки</b>",
+        reply_markup=await _settings_kb_full(db),
     )
     await call.answer()
 
@@ -983,16 +1045,42 @@ async def cb_settings_community_url(call: CallbackQuery, state: FSMContext):
 async def on_community_url_input(message: Message, state: FSMContext, db: Database):
     if not _is_admin(message.from_user.id):
         return
-    raw = message.text.strip()
-    if raw == "-":
-        raw = ""
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    raw = message.text.strip().removeprefix("https://t.me/").removeprefix("http://t.me/").removeprefix("t.me/").removeprefix("@")
     await db.set_setting("community_url", raw)
     await state.clear()
-    label = raw or "очищена"
-    await message.answer(
-        f"✅ Сообщество: <b>{label}</b>\n\n⚙️ <b>Настройки</b>",
-        reply_markup=await _settings_kb_full(db),
+    data = await state.get_data()
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    text = f"✅ Сообщество: <b>{raw}</b>\n\n⚙️ <b>Настройки</b>"
+    kb = await _settings_kb_full(db)
+    if prompt_msg_id:
+        try:
+            await message.bot.edit_message_text(text, chat_id=chat_id,
+                                                 message_id=prompt_msg_id, reply_markup=kb)
+            return
+        except Exception:
+            pass
+    await message.answer(text, reply_markup=kb)
+
+
+# ── Платёжные системы ─────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "settings_payments")
+async def cb_settings_payments(call: CallbackQuery):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await call.message.edit_text(
+        "💳 <b>Платёжные системы</b>\n\n"
+        "<i>В разработке. Здесь будут настройки YooMoney, Heleket и Telegram Stars.</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary")],
+        ]),
     )
+    await call.answer()
 
 
 # ── Бэкап ───────────────────────────────────────────────────────────────────────

@@ -51,7 +51,7 @@ def clients_kb(servers: list[dict]) -> InlineKeyboardMarkup:
         ]
         buttons.append(row)
     buttons.append([InlineKeyboardButton(text="➕ Добавить сервер", callback_data="add")])
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="main")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="main", style="primary")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -69,8 +69,8 @@ def period_kb(prefix: str = "ap", back_cb: str = "clients") -> InlineKeyboardMar
             InlineKeyboardButton(text="♾", callback_data=f"{prefix}:unlimited"),
         ],
         [
-            InlineKeyboardButton(text="⬅️ Назад",      callback_data=back_cb),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main"),
+            InlineKeyboardButton(text="⬅️ Назад",      callback_data=back_cb, style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
         ],
     ])
 
@@ -89,14 +89,14 @@ def add_period_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="♾", callback_data="ap:unlimited"),
         ],
         [
-            InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_add"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_add", style="danger"),
         ],
     ])
 
 
 def cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_add")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_add", style="danger")],
     ])
 
 
@@ -110,7 +110,7 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🔄 Продлить",   callback_data=f"ext:{sid}"),
+            InlineKeyboardButton(text="🔄 Продлить",   callback_data=f"ext:{sid}", style="primary"),
             InlineKeyboardButton(text=toggle_text,     callback_data=f"tog:{sid}"),
         ],
         [InlineKeyboardButton(text="✉️ Написать сообщение", callback_data=f"msg:{sid}")],
@@ -119,12 +119,12 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔓 Сбросить IP",  callback_data=f"rip:{sid}"),
         ],
         [
-            InlineKeyboardButton(text=blk_text,       callback_data=f"blk:{sid}"),
-            InlineKeyboardButton(text="🗑 Удалить",    callback_data=f"del:{sid}"),
+            InlineKeyboardButton(text=blk_text,       callback_data=f"blk:{sid}", style="danger"),
+            InlineKeyboardButton(text="🗑 Удалить",    callback_data=f"del:{sid}", style="danger"),
         ],
         [
-            InlineKeyboardButton(text="⬅️ Назад",        callback_data="clients"),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main"),
+            InlineKeyboardButton(text="⬅️ Назад",        callback_data="clients", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
         ],
     ])
 
@@ -136,11 +136,11 @@ def compose_kb(server_id: int, has_text: bool = False) -> InlineKeyboardMarkup:
     if has_text:
         buttons.append([
             InlineKeyboardButton(text="👁 Предпросмотр", callback_data=f"cmp:{server_id}"),
-            InlineKeyboardButton(text="📤 Отправить", callback_data=f"cms:{server_id}"),
+            InlineKeyboardButton(text="📤 Отправить", callback_data=f"cms:{server_id}", style="success"),
         ])
     buttons.append([
-        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"s:{server_id}"),
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main"),
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"s:{server_id}", style="primary"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -158,30 +158,37 @@ def user_servers_kb(servers: list[dict]) -> InlineKeyboardMarkup:
 def user_server_kb(server: dict, support_url: str = "", community_url: str = "") -> InlineKeyboardMarkup:
     sid = server["id"]
     buttons = [
-        [InlineKeyboardButton(text="🔄 Продлить", callback_data=f"uext:{sid}")],
+        [InlineKeyboardButton(text="🔄 Продлить", callback_data=f"uext:{sid}", style="primary")],
     ]
     link_row = []
     if support_url:
-        link_row.append(InlineKeyboardButton(text="🆘 Поддержка", url=support_url))
+        link_row.append(InlineKeyboardButton(text="🆘 Поддержка", url=f"https://t.me/{support_url}"))
     if community_url:
-        link_row.append(InlineKeyboardButton(text="👥 Сообщество", url=community_url))
+        link_row.append(InlineKeyboardButton(text="👥 Сообщество", url=f"https://t.me/{community_url}"))
     if link_row:
         buttons.append(link_row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def setting_edit_kb(current: str, clear_cb: str, back_cb: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🗑 Очистить", callback_data=clear_cb, style="danger")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=back_cb, style="primary")],
+    ])
 
 
 def backup_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 Сохранить бэкап", callback_data="backup_save")],
         [InlineKeyboardButton(text="📤 Загрузить бэкап", callback_data="backup_load")],
-        [InlineKeyboardButton(text="⬅️ Назад",           callback_data="settings_menu")],
+        [InlineKeyboardButton(text="⬅️ Назад",           callback_data="settings_menu", style="primary")],
     ])
 
 
 def settings_kb(check_interval: int, offline_grace_days: int,
                 support_url: str = "", community_url: str = "") -> InlineKeyboardMarkup:
-    support_display = support_url or "не задан"
-    community_display = community_url or "не задана"
+    support_display = support_url or "Не указана"
+    community_display = community_url or "Не указано"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text=f"🔄 Частота проверки: {check_interval} мин.",
@@ -199,6 +206,7 @@ def settings_kb(check_interval: int, offline_grace_days: int,
             text=f"👥 Сообщество: {community_display}",
             callback_data="settings_community_url",
         )],
+        [InlineKeyboardButton(text="💳 Платёжные системы", callback_data="settings_payments")],
         [InlineKeyboardButton(text="💾 Бэкап",            callback_data="backup_menu")],
-        [InlineKeyboardButton(text="🏠 Главное меню",     callback_data="main")],
+        [InlineKeyboardButton(text="🏠 Главное меню",     callback_data="main", style="primary")],
     ])
