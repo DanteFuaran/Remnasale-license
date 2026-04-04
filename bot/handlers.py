@@ -12,7 +12,7 @@ from aiogram.types import (
 )
 from datetime import datetime, timezone, timedelta
 
-from config import BOT_ADMIN_ID
+from config import BOT_ADMIN_ID, PUBLIC_URL
 from database import Database
 from bot.keyboards import (
     main_menu_kb, clients_kb, period_kb, add_period_kb, cancel_kb,
@@ -64,63 +64,16 @@ def _is_admin(user_id: int) -> bool:
 def format_user_server(server: dict) -> str:
     emoji, status_text = server_status(server)
 
-    created = "—"
-    try:
-        dt = datetime.fromisoformat(server["created_at"])
-        created = dt.strftime("%d.%m.%Y")
-    except Exception:
-        pass
+    name = server.get("name", "—")
 
-    if not server.get("expires_at"):
-        expires = "♾️"
-    else:
-        try:
-            dt = datetime.fromisoformat(server["expires_at"])
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            dt_msk = dt + MSK_OFFSET
-            expires = dt_msk.strftime("%d.%m.%Y %H:%M") + " (МСК)"
-        except Exception:
-            expires = "—"
-
-    period_code = server.get("period") or "—"
-    period_label = PERIOD_LABELS.get(period_code, period_code)
-    if period_code == "unlimited":
-        period_label = "♾️"
-
-    return (
-        f"🖥️ Название: <b>{server['name']}</b>\n"
-        f"\n"
-        f"{emoji} Статус: <b>{status_text}</b>\n"
-        f"📅 Добавлен: {created}\n"
-        f"⏳ Истекает: {expires}\n"
-        f"🗓 Длительность: {period_label}"
-    )
-
-
-def _pluralize_servers(n: int) -> str:
-    if 11 <= n % 100 <= 19:
-        return f"{n} серверов"
-    r = n % 10
-    if r == 1:
-        return f"{n} сервер"
-    elif 2 <= r <= 4:
-        return f"{n} сервера"
-    return f"{n} серверов"
-
-
-def format_server(server: dict) -> str:
-    emoji, status_text = server_status(server)
-
-    sip = server.get("server_ip") or ""
-    ip_display = f"<code>{sip}</code>" if sip else "Не привязан"
-
-    # Telegram info
     dev_ids_raw = server.get("dev_telegram_ids", "") or ""
     first_dev_id = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else ""
-    tg_id_display = f"<code>{first_dev_id}</code>" if first_dev_id else "Не привязан"
+    tg_id_display = first_dev_id if first_dev_id else "—"
+
     bot_username = server.get("bot_username", "") or ""
-    bot_link = f"@{bot_username}" if bot_username else "Не привязан"
+    bot_link = f"@{bot_username}" if bot_username else "—"
+
+    remnasale_ver = server.get("remnasale_version", "") or "—"
 
     created = "—"
     try:
@@ -149,18 +102,103 @@ def format_server(server: dict) -> str:
     key = server.get("license_key", "—")
 
     return (
-        f"🖥️ Название: <b>{server['name']}</b>\n"
+        f"👤 <b>Мой профиль</b>\n"
+        f"<blockquote>👤 Имя: {name}\n"
+        f"📱 Телеграм ID: {tg_id_display}</blockquote>\n"
         f"\n"
-        f"{emoji} Статус: <b>{status_text}</b>\n"
-        f"📱 Телеграм ID: {tg_id_display}\n"
-        f"🤖 Телеграм бот: {bot_link}\n"
-        f"🌐 IP: {ip_display}\n"
+        f"📦 <b>Remnasale {remnasale_ver}</b>\n"
+        f"<blockquote>{emoji} Статус: {status_text}\n"
+        f"🤖 Телеграм бот: {bot_link}</blockquote>\n"
         f"\n"
-        f"🔑 Ключ: <code>{key}</code>\n"
+        f"📦 <b>Support X.X.X</b>\n"
+        f"<blockquote>⭕ Статус: Не куплено\n"
+        f"🤖 Телеграм бот:\n"
+        f"🌐 IP: </blockquote>\n"
+        f"\n"
+        f"🔑 <b>Данные ключа</b>\n"
+        f"<blockquote>🔑 Ключ: <code>{key}</code>\n"
         f"\n"
         f"📅 Добавлен: {created}\n"
         f"⏳ Истекает: {expires}\n"
-        f"🗓 Длительность: {period_label}"
+        f"🗓 Длительность: {period_label}</blockquote>"
+    )
+
+
+def _pluralize_servers(n: int) -> str:
+    if 11 <= n % 100 <= 19:
+        return f"{n} серверов"
+    r = n % 10
+    if r == 1:
+        return f"{n} сервер"
+    elif 2 <= r <= 4:
+        return f"{n} сервера"
+    return f"{n} серверов"
+
+
+def format_server(server: dict) -> str:
+    emoji, status_text = server_status(server)
+
+    name = server.get("name", "—")
+
+    sip = server.get("server_ip") or ""
+    ip_display = f"<code>{sip}</code>" if sip else "—"
+
+    dev_ids_raw = server.get("dev_telegram_ids", "") or ""
+    first_dev_id = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else ""
+    tg_id_display = f"<code>{first_dev_id}</code>" if first_dev_id else "—"
+
+    bot_username = server.get("bot_username", "") or ""
+    bot_link = f"@{bot_username}" if bot_username else "—"
+
+    remnasale_ver = server.get("remnasale_version", "") or "—"
+
+    created = "—"
+    try:
+        dt = datetime.fromisoformat(server["created_at"])
+        created = dt.strftime("%d.%m.%Y")
+    except Exception:
+        pass
+
+    if not server.get("expires_at"):
+        expires = "♾️"
+    else:
+        try:
+            dt = datetime.fromisoformat(server["expires_at"])
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt_msk = dt + MSK_OFFSET
+            expires = dt_msk.strftime("%d.%m.%Y %H:%M") + " (МСК)"
+        except Exception:
+            expires = "—"
+
+    period_code = server.get("period") or "—"
+    period_label = PERIOD_LABELS.get(period_code, period_code)
+    if period_code == "unlimited":
+        period_label = "♾️"
+
+    key = server.get("license_key", "—")
+
+    return (
+        f"👤 <b>Мой профиль</b>\n"
+        f"<blockquote>👤 Имя: {name}\n"
+        f"📱 Телеграм ID: {tg_id_display}</blockquote>\n"
+        f"\n"
+        f"📦 <b>Remnasale {remnasale_ver}</b>\n"
+        f"<blockquote>{emoji} Статус: {status_text}\n"
+        f"🤖 Телеграм бот: {bot_link}\n"
+        f"🌐 IP: {ip_display}</blockquote>\n"
+        f"\n"
+        f"📦 <b>Support X.X.X</b>\n"
+        f"<blockquote>⭕ Статус: Не куплено\n"
+        f"🤖 Телеграм бот:\n"
+        f"🌐 IP: </blockquote>\n"
+        f"\n"
+        f"🔑 <b>Данные ключа</b>\n"
+        f"<blockquote>🔑 Ключ: <code>{key}</code>\n"
+        f"\n"
+        f"📅 Добавлен: {created}\n"
+        f"⏳ Истекает: {expires}\n"
+        f"🗓 Длительность: {period_label}</blockquote>"
     )
 
 
@@ -1178,12 +1216,40 @@ async def cb_gateway_detail(call: CallbackQuery, db: Database):
     from database import GATEWAY_TYPES
     meta = GATEWAY_TYPES.get(gtype, {})
     label = meta.get("label", gtype)
+    # Telegram Stars has no settings fields
+    if not meta.get("fields"):
+        await call.answer("ℹ️ Шлюз не требует настройки", show_alert=True)
+        return
     status = "🟢 Активен" if gw["is_active"] else "🔴 Выключен"
     await call.message.edit_text(
         f"{label}\n\n<b>Статус:</b> {status}",
-        reply_markup=gateway_detail_kb(gw),
+        reply_markup=gateway_detail_kb(gw, PUBLIC_URL),
     )
     await call.answer()
+
+
+@router.callback_query(F.data.startswith("gwtest:"))
+async def cb_gateway_test(call: CallbackQuery, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    gtype = call.data.split(":")[1]
+    gw = await db.get_gateway(gtype)
+    if not gw:
+        await call.answer("Шлюз не найден", show_alert=True)
+        return
+    from database import GATEWAY_TYPES
+    meta = GATEWAY_TYPES.get(gtype, {})
+    # Check if gateway is configured
+    fields = meta.get("fields", {})
+    settings = gw.get("settings", {})
+    if fields and not all(settings.get(f) for f in fields):
+        await call.answer("❌ Шлюз не настроен", show_alert=True)
+        return
+    if not gw["is_active"]:
+        await call.answer("❌ Шлюз выключен", show_alert=True)
+        return
+    label = meta.get("label", gtype)
+    await call.answer(f"🐞 Тестовый платёж {label}: в разработке", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("gwt:"))
@@ -1196,20 +1262,8 @@ async def cb_gateway_toggle(call: CallbackQuery, db: Database):
         await call.answer("Шлюз не найден", show_alert=True)
         return
     status = "🟢 Включён" if gw["is_active"] else "🔴 Выключен"
-    # Determine if we came from list or detail
-    text = call.message.text or call.message.html_text or ""
-    if "Платёжные системы" in text:
-        gateways = await db.get_all_gateways()
-        await call.message.edit_text("💳 <b>Платёжные системы</b>", reply_markup=payments_kb(gateways))
-    else:
-        from database import GATEWAY_TYPES
-        meta = GATEWAY_TYPES.get(gtype, {})
-        label = meta.get("label", gtype)
-        status_text = "🟢 Активен" if gw["is_active"] else "🔴 Выключен"
-        await call.message.edit_text(
-            f"{label}\n\n<b>Статус:</b> {status_text}",
-            reply_markup=gateway_detail_kb(gw),
-        )
+    gateways = await db.get_all_gateways()
+    await call.message.edit_text("💳 <b>Платёжные системы</b>", reply_markup=payments_kb(gateways))
     await call.answer(status)
 
 
@@ -1238,7 +1292,10 @@ async def cb_gateway_field(call: CallbackQuery, state: FSMContext, db: Database)
         f"ℹ️ <i>Введите новое значение:</i>",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🗑 Очистить", callback_data=f"gwfc:{gtype}:{field}", style="danger")],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"gw:{gtype}", style="primary")],
+            [
+                InlineKeyboardButton(text="❌ Отмена", callback_data=f"gw:{gtype}", style="primary"),
+                InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+            ],
         ]),
     )
     await call.answer()
@@ -1259,7 +1316,7 @@ async def cb_gateway_field_clear(call: CallbackQuery, state: FSMContext, db: Dat
     status = "🟢 Активен" if gw["is_active"] else "🔴 Выключен"
     await call.message.edit_text(
         f"{label}\n\n<b>Статус:</b> {status}",
-        reply_markup=gateway_detail_kb(gw),
+        reply_markup=gateway_detail_kb(gw, PUBLIC_URL),
     )
     await call.answer("🗑 Очищено")
 
@@ -1286,7 +1343,7 @@ async def on_gateway_field_input(message: Message, state: FSMContext, db: Databa
     label = meta.get("label", gtype)
     status = "🟢 Активен" if gw["is_active"] else "🔴 Выключен"
     text = f"✅ Сохранено\n\n{label}\n\n<b>Статус:</b> {status}"
-    kb = gateway_detail_kb(gw)
+    kb = gateway_detail_kb(gw, PUBLIC_URL)
     if prompt_msg_id:
         try:
             await message.bot.edit_message_text(text, chat_id=chat_id,

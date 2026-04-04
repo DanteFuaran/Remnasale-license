@@ -70,6 +70,8 @@ class LicenseDB:
                 await db.execute("ALTER TABLE servers ADD COLUMN bot_username TEXT DEFAULT ''")
             if "dev_telegram_ids" not in columns:
                 await db.execute("ALTER TABLE servers ADD COLUMN dev_telegram_ids TEXT DEFAULT ''")
+            if "remnasale_version" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN remnasale_version TEXT DEFAULT ''")
 
             # Платёжные шлюзы
             await db.execute("""
@@ -222,11 +224,11 @@ class LicenseDB:
             await db.commit()
         return await self.get_server(server_id)
 
-    async def update_bot_info(self, license_key: str, bot_token: str, bot_username: str, dev_ids: str):
+    async def update_bot_info(self, license_key: str, bot_token: str, bot_username: str, dev_ids: str, remnasale_version: str = ""):
         async with aiosqlite.connect(self.path) as db:
             await db.execute(
-                "UPDATE servers SET bot_token = ?, bot_username = ?, dev_telegram_ids = ? WHERE license_key = ?",
-                (bot_token, bot_username, dev_ids, license_key),
+                "UPDATE servers SET bot_token = ?, bot_username = ?, dev_telegram_ids = ?, remnasale_version = ? WHERE license_key = ?",
+                (bot_token, bot_username, dev_ids, remnasale_version, license_key),
             )
             await db.commit()
 

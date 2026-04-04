@@ -1,4 +1,4 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CopyTextButton
 from datetime import datetime, timezone
 
 PERIOD_LABELS = {
@@ -110,7 +110,7 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🔄 Продлить",   callback_data=f"ext:{sid}", style="primary"),
+            InlineKeyboardButton(text="🔄 Продлить",   callback_data=f"ext:{sid}"),
             InlineKeyboardButton(text=toggle_text,     callback_data=f"tog:{sid}"),
         ],
         [InlineKeyboardButton(text="✉️ Написать сообщение", callback_data=f"msg:{sid}")],
@@ -189,7 +189,10 @@ def backup_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 Сохранить бэкап", callback_data="backup_save")],
         [InlineKeyboardButton(text="📤 Загрузить бэкап", callback_data="backup_load")],
-        [InlineKeyboardButton(text="⬅️ Назад",           callback_data="settings_menu", style="primary")],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+        ],
     ])
 
 
@@ -218,7 +221,10 @@ def sync_kb(check_interval: int, offline_grace_days: int) -> InlineKeyboardMarku
             text=f"📡 Автономность: {offline_grace_days} дн.",
             callback_data="settings_offline_grace",
         )],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary")],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+        ],
     ])
 
 
@@ -231,14 +237,22 @@ def payments_kb(gateways: list[dict]) -> InlineKeyboardMarkup:
         label = meta.get("label", gtype)
         status = "🟢" if gw["is_active"] else "🔴"
         buttons.append([
-            InlineKeyboardButton(text=f"{label}", callback_data=f"gw:{gtype}"),
+            InlineKeyboardButton(text=label, callback_data=f"gw:{gtype}"),
+            InlineKeyboardButton(text="🐞 Тест", callback_data=f"gwtest:{gtype}"),
             InlineKeyboardButton(text=status, callback_data=f"gwt:{gtype}"),
         ])
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary")])
+    buttons.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def gateway_detail_kb(gw: dict) -> InlineKeyboardMarkup:
+# Gateways that require a webhook URL (same logic as Remnasale):
+_REQUIRES_WEBHOOK = {"yoomoney", "stars"}
+
+
+def gateway_detail_kb(gw: dict, public_url: str = "") -> InlineKeyboardMarkup:
     from database import GATEWAY_TYPES
     gtype = gw["type"]
     meta = GATEWAY_TYPES.get(gtype, {})
@@ -246,21 +260,29 @@ def gateway_detail_kb(gw: dict) -> InlineKeyboardMarkup:
     settings = gw.get("settings", {})
 
     buttons = []
-    for field_key, field_label in fields.items():
-        val = settings.get(field_key, "")
-        if val:
-            if len(val) > 10:
-                display = val[:4] + "***" + val[-4:]
-            else:
-                display = "***"
-        else:
-            display = "Не указан"
+    # Field buttons: 2 per row
+    field_items = list(fields.items())
+    for i in range(0, len(field_items), 2):
+        row = []
+        for field_key, field_label in field_items[i:i+2]:
+            val = settings.get(field_key, "")
+            display = (val[:4] + "***" + val[-4:]) if val and len(val) > 10 else ("***" if val else "Не указан")
+            row.append(InlineKeyboardButton(
+                text=f"{field_label.upper()}: {display}",
+                callback_data=f"gwf:{gtype}:{field_key}",
+            ))
+        buttons.append(row)
+
+    # Webhook copy button (only for gateways that need it)
+    if gtype in _REQUIRES_WEBHOOK and public_url:
+        webhook_url = f"{public_url.rstrip('/')}/api/v1/webhook/{gtype}"
         buttons.append([InlineKeyboardButton(
-            text=f"{field_label}: {display}",
-            callback_data=f"gwf:{gtype}:{field_key}",
+            text="📋 Скопировать вебхук",
+            copy_text=CopyTextButton(text=webhook_url),
         )])
 
-    toggle_text = "🔴 Выключить" if gw["is_active"] else "🟢 Включить"
-    buttons.append([InlineKeyboardButton(text=toggle_text, callback_data=f"gwt:{gtype}")])
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_payments", style="primary")])
+    buttons.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_payments", style="primary"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
