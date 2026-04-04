@@ -263,18 +263,15 @@ def gateway_detail_kb(gw: dict, public_url: str = "") -> InlineKeyboardMarkup:
     gtype = gw["type"]
     meta = GATEWAY_TYPES.get(gtype, {})
     fields = meta.get("fields", {})
-    settings = gw.get("settings", {})
 
     buttons = []
-    # Field buttons: 2 per row
+    # Field buttons: 2 per row, just the label
     field_items = list(fields.items())
     for i in range(0, len(field_items), 2):
         row = []
         for field_key, field_label in field_items[i:i+2]:
-            val = settings.get(field_key, "")
-            display = (val[:4] + "***" + val[-4:]) if val and len(val) > 10 else ("***" if val else "Не указан")
             row.append(InlineKeyboardButton(
-                text=f"{field_label.upper()}: {display}",
+                text=field_label,
                 callback_data=f"gwf:{gtype}:{field_key}",
             ))
         buttons.append(row)
@@ -288,8 +285,8 @@ def gateway_detail_kb(gw: dict, public_url: str = "") -> InlineKeyboardMarkup:
         )])
 
     buttons.append([
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_payments", style="primary"),
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="settings_payments", style="primary"),
+        InlineKeyboardButton(text="✅ Принять", callback_data="main", style="success"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -311,8 +308,8 @@ def gateway_placement_kb(gateways: list[dict]) -> InlineKeyboardMarkup:
         meta = GATEWAY_TYPES.get(gtype, {})
         label = meta.get("label", gtype)
         row = [InlineKeyboardButton(text=label, callback_data=f"gwpos:{gtype}")]
-        if idx > 0:
-            row.append(InlineKeyboardButton(text="⬆️", callback_data=f"gwup:{gtype}"))
+        arrow_cb = f"gwup:{gtype}" if idx > 0 else "gwup_noop"
+        row.append(InlineKeyboardButton(text="⬆️", callback_data=arrow_cb))
         buttons.append(row)
     buttons.append([
         InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_payments", style="primary"),

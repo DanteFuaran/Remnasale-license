@@ -15,9 +15,17 @@ PERIODS = {
 }
 
 GATEWAY_TYPES = {
-    "yoomoney": {"label": "💳 ЮМани", "fields": {"wallet_id": "Wallet ID", "secret_key": "Секретный ключ"}},
-    "heleket":  {"label": "🌐 Heleket", "fields": {"merchant_id": "Merchant ID", "api_key": "API Key"}},
-    "stars":    {"label": "⭐ Telegram Stars", "fields": {}},
+    "yoomoney": {
+        "label": "💳 ЮМани",
+        "fields": {"wallet_id": "Кошелек", "secret_key": "Секретный ключ"},
+        "copyable": {"wallet_id"},
+    },
+    "heleket": {
+        "label": "🌐 Heleket",
+        "fields": {"merchant_id": "Мерчант", "api_key": "API Ключ"},
+        "copyable": set(),
+    },
+    "stars": {"label": "⭐ Telegram Stars", "fields": {}},
 }
 
 

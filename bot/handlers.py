@@ -1200,6 +1200,27 @@ async def cb_settings_payments(call: CallbackQuery, state: FSMContext, db: Datab
     await call.answer()
 
 
+def _format_gateway_detail_text(gw: dict, meta: dict) -> str:
+    label = meta.get("label", gw["type"])
+    fields = meta.get("fields", {})
+    settings = gw.get("settings") or {}
+    copyable = meta.get("copyable", set())
+    lines = [label]
+    if fields:
+        lines.append("")
+        for field_key, field_label in fields.items():
+            val = settings.get(field_key) or ""
+            if val:
+                val_display = f"<code>{val}</code>" if field_key in copyable else val
+            else:
+                val_display = "—"
+            lines.append(f"• {field_label}: {val_display}")
+        if not all(settings.get(f) for f in fields):
+            lines.append("")
+            lines.append("<i>Укажите все необходимые настройки</i>")
+    return "\n".join(lines)
+
+
 @router.callback_query(F.data.startswith("gw:"))
 async def cb_gateway_detail(call: CallbackQuery, db: Database):
     if not _is_admin(call.from_user.id):
@@ -1216,9 +1237,8 @@ async def cb_gateway_detail(call: CallbackQuery, db: Database):
     if not meta.get("fields"):
         await call.answer("ℹ️ Шлюз не требует настройки", show_alert=True)
         return
-    status = "🟢 Активен" if gw["is_active"] else "🔴 Выключен"
     await call.message.edit_text(
-        f"{label}\n\n<b>Статус:</b> {status}",
+        _format_gateway_detail_text(gw, meta),
         reply_markup=gateway_detail_kb(gw, PUBLIC_URL),
     )
     await call.answer()
@@ -1308,10 +1328,8 @@ async def cb_gateway_field_clear(call: CallbackQuery, state: FSMContext, db: Dat
     gw = await db.get_gateway(gtype)
     from database import GATEWAY_TYPES
     meta = GATEWAY_TYPES.get(gtype, {})
-    label = meta.get("label", gtype)
-    status = "🟢 Активен" if gw["is_active"] else "🔴 Выключен"
     await call.message.edit_text(
-        f"{label}\n\n<b>Статус:</b> {status}",
+        _format_gateway_detail_text(gw, meta),
         reply_markup=gateway_detail_kb(gw, PUBLIC_URL),
     )
     await call.answer("🗑 Очищено")
@@ -1336,9 +1354,7 @@ async def on_gateway_field_input(message: Message, state: FSMContext, db: Databa
     gw = await db.get_gateway(gtype)
     from database import GATEWAY_TYPES
     meta = GATEWAY_TYPES.get(gtype, {})
-    label = meta.get("label", gtype)
-    status = "🟢 Активен" if gw["is_active"] else "🔴 Выключен"
-    text = f"✅ Сохранено\n\n{label}\n\n<b>Статус:</b> {status}"
+    text = f"✅ Сохранено\n\n{_format_gateway_detail_text(gw, meta)}"
     kb = gateway_detail_kb(gw, PUBLIC_URL)
     if prompt_msg_id:
         try:
@@ -1363,6 +1379,11 @@ async def cb_gw_placement(call: CallbackQuery, state: FSMContext, db: Database):
         "Измените порядок отображения шлюзов:",
         reply_markup=gateway_placement_kb(gateways),
     )
+    await call.answer()
+
+
+@router.callback_query(F.data == "gwup_noop")
+async def cb_gw_up_noop(call: CallbackQuery):
     await call.answer()
 
 
