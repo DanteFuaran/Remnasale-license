@@ -17,7 +17,8 @@ from database import Database
 from bot.keyboards import (
     main_menu_kb, clients_kb, period_kb, add_period_kb, cancel_kb,
     server_detail_kb, backup_kb, settings_kb, compose_kb,
-    user_servers_kb, user_server_kb, setting_edit_kb,
+    user_servers_kb, user_server_kb, setting_edit_kb, setting_edit_pending_kb,
+    sync_kb, payments_kb, gateway_detail_kb,
     server_status, PERIOD_LABELS,
 )
 
@@ -181,11 +182,9 @@ async def _clear_confirm(state: FSMContext, bot: Bot, chat_id: int):
 
 
 async def _settings_kb_full(db: Database) -> InlineKeyboardMarkup:
-    interval = await db.get_check_interval()
-    grace = await db.get_offline_grace_days()
     support = await db.get_setting("support_url")
     community = await db.get_setting("community_url")
-    return settings_kb(interval, grace, support, community)
+    return settings_kb(support, community)
 
 
 # ── /start ────────────────────────────────────────────────────────────────────
@@ -668,7 +667,7 @@ async def on_rename(message: Message, state: FSMContext, db: Database):
 # ── Написать сообщение (compose flow) ──────────────────────────────────────────
 
 def _compose_header(server: dict, text: str | None) -> str:
-    preview = f"<blockquote>{text}</blockquote>" if text else "<i>Текст не введён</i>"
+    preview = f"<blockquote>{text}</blockquote>" if text else "<blockquote><i>Текст не введён</i></blockquote>"
     return (
         f"✉️ Сообщение для <b>{server['name']}</b>\n\n"
         f"{preview}"
@@ -875,6 +874,22 @@ async def cb_settings_menu(call: CallbackQuery, state: FSMContext, db: Database)
     await call.answer()
 
 
+# ── Настройка синхронизации ────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "settings_sync")
+async def cb_settings_sync(call: CallbackQuery, state: FSMContext, db: Database):
+    await state.clear()
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    interval = await db.get_check_interval()
+    grace = await db.get_offline_grace_days()
+    await call.message.edit_text(
+        "🔄 <b>Настройка синхронизации</b>",
+        reply_markup=sync_kb(interval, grace),
+    )
+    await call.answer()
+
+
 # ── Интервал проверки ──────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "settings_check_interval")
@@ -882,7 +897,14 @@ async def cb_settings_interval(call: CallbackQuery, state: FSMContext):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await state.set_state(SettingsIntervalState.waiting_interval)
-    await call.message.edit_text("🔄 Введите интервал проверки в <b>минутах</b> (1–1440):")
+    await state.update_data(prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
+    await call.message.edit_text(
+        "🔄 Введите интервал проверки в <b>минутах</b> (1–1440):",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="settings_sync", style="primary")]
+        ]),
+    )
     await call.answer()
 
 
@@ -891,17 +913,32 @@ async def on_interval_input(message: Message, state: FSMContext, db: Database):
     if not _is_admin(message.from_user.id):
         return
     try:
+        await message.delete()
+    except Exception:
+        pass
+    try:
         val = int(message.text.strip())
         if not 1 <= val <= 1440:
             raise ValueError
     except ValueError:
-        return await message.answer("❌ Введите число от 1 до 1440.")
+        return
     await db.set_check_interval(val)
+    data = await state.get_data()
     await state.clear()
-    await message.answer(
-        f"✅ Интервал обновлён: <b>{val} мин.</b>\n\n⚙️ <b>Настройки</b>",
-        reply_markup=await _settings_kb_full(db),
-    )
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    interval = await db.get_check_interval()
+    grace = await db.get_offline_grace_days()
+    text = f"✅ Интервал: <b>{val} мин.</b>\n\n🔄 <b>Настройка синхронизации</b>"
+    kb = sync_kb(interval, grace)
+    if prompt_msg_id:
+        try:
+            await message.bot.edit_message_text(text, chat_id=chat_id,
+                                                 message_id=prompt_msg_id, reply_markup=kb)
+            return
+        except Exception:
+            pass
+    await message.answer(text, reply_markup=kb)
 
 
 # ── Офлайн-период ──────────────────────────────────────────────────────────────
@@ -911,8 +948,13 @@ async def cb_settings_offline_grace(call: CallbackQuery, state: FSMContext):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await state.set_state(SettingsOfflineGraceState.waiting_days)
+    await state.update_data(prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
     await call.message.edit_text(
-        "📡 Введите количество <b>дней</b> автономной работы (1–365):"
+        "📡 Введите количество <b>дней</b> автономной работы (1–365):",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="settings_sync", style="primary")]
+        ]),
     )
     await call.answer()
 
@@ -922,17 +964,32 @@ async def on_offline_grace_input(message: Message, state: FSMContext, db: Databa
     if not _is_admin(message.from_user.id):
         return
     try:
+        await message.delete()
+    except Exception:
+        pass
+    try:
         val = int(message.text.strip())
         if not 1 <= val <= 365:
             raise ValueError
     except ValueError:
-        return await message.answer("❌ Введите число от 1 до 365.")
+        return
     await db.set_offline_grace_days(val)
+    data = await state.get_data()
     await state.clear()
-    await message.answer(
-        f"✅ Автономность обновлена: <b>{val} дн.</b>\n\n⚙️ <b>Настройки</b>",
-        reply_markup=await _settings_kb_full(db),
-    )
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    interval = await db.get_check_interval()
+    grace = await db.get_offline_grace_days()
+    text = f"✅ Автономность: <b>{val} дн.</b>\n\n🔄 <b>Настройка синхронизации</b>"
+    kb = sync_kb(interval, grace)
+    if prompt_msg_id:
+        try:
+            await message.bot.edit_message_text(text, chat_id=chat_id,
+                                                 message_id=prompt_msg_id, reply_markup=kb)
+            return
+        except Exception:
+            pass
+    await message.answer(text, reply_markup=kb)
 
 
 # ── Настройка поддержки ────────────────────────────────────────────────────────
@@ -951,13 +1008,14 @@ def _support_edit_text(current: str) -> str:
 async def cb_settings_support_url(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
-    await state.set_state(SettingsSupportUrlState.waiting_url)
     current = await db.get_setting("support_url")
+    await state.set_state(SettingsSupportUrlState.waiting_url)
     await state.update_data(prompt_msg_id=call.message.message_id,
-                            prompt_chat_id=call.message.chat.id)
+                            prompt_chat_id=call.message.chat.id,
+                            pending_value=None, original_value=current)
     await call.message.edit_text(
         _support_edit_text(current),
-        reply_markup=setting_edit_kb(current, "clear_support", "settings_menu"),
+        reply_markup=setting_edit_kb("clear_support", "settings_menu"),
     )
     await call.answer()
 
@@ -975,6 +1033,21 @@ async def cb_clear_support(call: CallbackQuery, state: FSMContext, db: Database)
     await call.answer()
 
 
+@router.callback_query(F.data == "accept_support")
+async def cb_accept_support(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    data = await state.get_data()
+    val = data.get("pending_value") or ""
+    await db.set_setting("support_url", val)
+    await state.clear()
+    await call.message.edit_text(
+        f"✅ Поддержка: <b>{val}</b>\n\n⚙️ <b>Настройки</b>",
+        reply_markup=await _settings_kb_full(db),
+    )
+    await call.answer()
+
+
 @router.message(SettingsSupportUrlState.waiting_url)
 async def on_support_url_input(message: Message, state: FSMContext, db: Database):
     if not _is_admin(message.from_user.id):
@@ -984,13 +1057,12 @@ async def on_support_url_input(message: Message, state: FSMContext, db: Database
     except Exception:
         pass
     raw = message.text.strip().removeprefix("https://t.me/").removeprefix("http://t.me/").removeprefix("t.me/").removeprefix("@")
-    await db.set_setting("support_url", raw)
-    await state.clear()
+    await state.update_data(pending_value=raw)
     data = await state.get_data()
     prompt_msg_id = data.get("prompt_msg_id")
     chat_id = data.get("prompt_chat_id") or message.chat.id
-    text = f"✅ Поддержка: <b>{raw}</b>\n\n⚙️ <b>Настройки</b>"
-    kb = await _settings_kb_full(db)
+    text = _support_edit_text(raw)
+    kb = setting_edit_pending_kb("accept_support", "clear_support", "settings_menu")
     if prompt_msg_id:
         try:
             await message.bot.edit_message_text(text, chat_id=chat_id,
@@ -1017,13 +1089,14 @@ def _community_edit_text(current: str) -> str:
 async def cb_settings_community_url(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
-    await state.set_state(SettingsCommunityUrlState.waiting_url)
     current = await db.get_setting("community_url")
+    await state.set_state(SettingsCommunityUrlState.waiting_url)
     await state.update_data(prompt_msg_id=call.message.message_id,
-                            prompt_chat_id=call.message.chat.id)
+                            prompt_chat_id=call.message.chat.id,
+                            pending_value=None, original_value=current)
     await call.message.edit_text(
         _community_edit_text(current),
-        reply_markup=setting_edit_kb(current, "clear_community", "settings_menu"),
+        reply_markup=setting_edit_kb("clear_community", "settings_menu"),
     )
     await call.answer()
 
@@ -1041,6 +1114,21 @@ async def cb_clear_community(call: CallbackQuery, state: FSMContext, db: Databas
     await call.answer()
 
 
+@router.callback_query(F.data == "accept_community")
+async def cb_accept_community(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    data = await state.get_data()
+    val = data.get("pending_value") or ""
+    await db.set_setting("community_url", val)
+    await state.clear()
+    await call.message.edit_text(
+        f"✅ Сообщество: <b>{val}</b>\n\n⚙️ <b>Настройки</b>",
+        reply_markup=await _settings_kb_full(db),
+    )
+    await call.answer()
+
+
 @router.message(SettingsCommunityUrlState.waiting_url)
 async def on_community_url_input(message: Message, state: FSMContext, db: Database):
     if not _is_admin(message.from_user.id):
@@ -1050,13 +1138,12 @@ async def on_community_url_input(message: Message, state: FSMContext, db: Databa
     except Exception:
         pass
     raw = message.text.strip().removeprefix("https://t.me/").removeprefix("http://t.me/").removeprefix("t.me/").removeprefix("@")
-    await db.set_setting("community_url", raw)
-    await state.clear()
+    await state.update_data(pending_value=raw)
     data = await state.get_data()
     prompt_msg_id = data.get("prompt_msg_id")
     chat_id = data.get("prompt_chat_id") or message.chat.id
-    text = f"✅ Сообщество: <b>{raw}</b>\n\n⚙️ <b>Настройки</b>"
-    kb = await _settings_kb_full(db)
+    text = _community_edit_text(raw)
+    kb = setting_edit_pending_kb("accept_community", "clear_community", "settings_menu")
     if prompt_msg_id:
         try:
             await message.bot.edit_message_text(text, chat_id=chat_id,
@@ -1070,17 +1157,144 @@ async def on_community_url_input(message: Message, state: FSMContext, db: Databa
 # ── Платёжные системы ─────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "settings_payments")
-async def cb_settings_payments(call: CallbackQuery):
+async def cb_settings_payments(call: CallbackQuery, state: FSMContext, db: Database):
+    await state.clear()
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
+    gateways = await db.get_all_gateways()
+    await call.message.edit_text("💳 <b>Платёжные системы</b>", reply_markup=payments_kb(gateways))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("gw:"))
+async def cb_gateway_detail(call: CallbackQuery, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    gtype = call.data.split(":")[1]
+    gw = await db.get_gateway(gtype)
+    if not gw:
+        await call.answer("Шлюз не найден", show_alert=True)
+        return
+    from database import GATEWAY_TYPES
+    meta = GATEWAY_TYPES.get(gtype, {})
+    label = meta.get("label", gtype)
+    status = "🟢 Активен" if gw["is_active"] else "🔴 Выключен"
     await call.message.edit_text(
-        "💳 <b>Платёжные системы</b>\n\n"
-        "<i>В разработке. Здесь будут настройки YooMoney, Heleket и Telegram Stars.</i>",
+        f"{label}\n\n<b>Статус:</b> {status}",
+        reply_markup=gateway_detail_kb(gw),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("gwt:"))
+async def cb_gateway_toggle(call: CallbackQuery, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    gtype = call.data.split(":")[1]
+    gw = await db.toggle_gateway(gtype)
+    if not gw:
+        await call.answer("Шлюз не найден", show_alert=True)
+        return
+    status = "🟢 Включён" if gw["is_active"] else "🔴 Выключен"
+    # Determine if we came from list or detail
+    text = call.message.text or call.message.html_text or ""
+    if "Платёжные системы" in text:
+        gateways = await db.get_all_gateways()
+        await call.message.edit_text("💳 <b>Платёжные системы</b>", reply_markup=payments_kb(gateways))
+    else:
+        from database import GATEWAY_TYPES
+        meta = GATEWAY_TYPES.get(gtype, {})
+        label = meta.get("label", gtype)
+        status_text = "🟢 Активен" if gw["is_active"] else "🔴 Выключен"
+        await call.message.edit_text(
+            f"{label}\n\n<b>Статус:</b> {status_text}",
+            reply_markup=gateway_detail_kb(gw),
+        )
+    await call.answer(status)
+
+
+class GatewayFieldState(StatesGroup):
+    waiting_value = State()
+
+
+@router.callback_query(F.data.startswith("gwf:"))
+async def cb_gateway_field(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    parts = call.data.split(":")
+    gtype, field = parts[1], parts[2]
+    from database import GATEWAY_TYPES
+    meta = GATEWAY_TYPES.get(gtype, {})
+    field_label = meta.get("fields", {}).get(field, field)
+    await state.set_state(GatewayFieldState.waiting_value)
+    await state.update_data(gw_type=gtype, gw_field=field,
+                            prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
+    gw = await db.get_gateway(gtype)
+    current = (gw.get("settings", {}).get(field, "") if gw else "") or "Не указан"
+    await call.message.edit_text(
+        f"✏️ <b>{field_label}</b>\n\n"
+        f"<blockquote>{current}</blockquote>\n\n"
+        f"ℹ️ <i>Введите новое значение:</i>",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary")],
+            [InlineKeyboardButton(text="🗑 Очистить", callback_data=f"gwfc:{gtype}:{field}", style="danger")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"gw:{gtype}", style="primary")],
         ]),
     )
     await call.answer()
+
+
+@router.callback_query(F.data.startswith("gwfc:"))
+async def cb_gateway_field_clear(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    parts = call.data.split(":")
+    gtype, field = parts[1], parts[2]
+    await db.clear_gateway_field(gtype, field)
+    await state.clear()
+    gw = await db.get_gateway(gtype)
+    from database import GATEWAY_TYPES
+    meta = GATEWAY_TYPES.get(gtype, {})
+    label = meta.get("label", gtype)
+    status = "🟢 Активен" if gw["is_active"] else "🔴 Выключен"
+    await call.message.edit_text(
+        f"{label}\n\n<b>Статус:</b> {status}",
+        reply_markup=gateway_detail_kb(gw),
+    )
+    await call.answer("🗑 Очищено")
+
+
+@router.message(GatewayFieldState.waiting_value)
+async def on_gateway_field_input(message: Message, state: FSMContext, db: Database):
+    if not _is_admin(message.from_user.id):
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    data = await state.get_data()
+    gtype = data.get("gw_type")
+    field = data.get("gw_field")
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    val = message.text.strip() if message.text else ""
+    await db.update_gateway_field(gtype, field, val)
+    await state.clear()
+    gw = await db.get_gateway(gtype)
+    from database import GATEWAY_TYPES
+    meta = GATEWAY_TYPES.get(gtype, {})
+    label = meta.get("label", gtype)
+    status = "🟢 Активен" if gw["is_active"] else "🔴 Выключен"
+    text = f"✅ Сохранено\n\n{label}\n\n<b>Статус:</b> {status}"
+    kb = gateway_detail_kb(gw)
+    if prompt_msg_id:
+        try:
+            await message.bot.edit_message_text(text, chat_id=chat_id,
+                                                 message_id=prompt_msg_id, reply_markup=kb)
+            return
+        except Exception:
+            pass
+    await message.answer(text, reply_markup=kb)
 
 
 # ── Бэкап ───────────────────────────────────────────────────────────────────────
@@ -1142,3 +1356,14 @@ async def backup_load(message: Message, state: FSMContext, db: Database):
         f"✅ Бэкап восстановлен\n\n{_clients_header(len(servers))}",
         reply_markup=clients_kb(servers),
     )
+
+
+# ── Авто-удаление нерелевантных сообщений ─────────────────────────────────────
+
+@router.message()
+async def auto_delete_unrelated(message: Message, state: FSMContext):
+    """Удаляет любое сообщение, не обработанное другими хендлерами."""
+    try:
+        await message.delete()
+    except Exception:
+        pass

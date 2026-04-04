@@ -1,4 +1,5 @@
 import aiosqlite
+import json
 import secrets
 import os
 from datetime import datetime, timedelta, timezone
@@ -11,6 +12,12 @@ PERIODS = {
     "6m": ("6 месяцев", 180),
     "12m": ("12 месяцев", 365),
     "unlimited": ("Бессрочно", None),
+}
+
+GATEWAY_TYPES = {
+    "yoomoney": {"label": "💳 ЮМани", "fields": {"wallet_id": "Wallet ID", "secret_key": "Секретный ключ"}},
+    "heleket":  {"label": "🌐 Heleket", "fields": {"merchant_id": "Merchant ID", "api_key": "API Key"}},
+    "stars":    {"label": "⭐ Telegram Stars", "fields": {}},
 }
 
 
@@ -63,6 +70,20 @@ class LicenseDB:
                 await db.execute("ALTER TABLE servers ADD COLUMN bot_username TEXT DEFAULT ''")
             if "dev_telegram_ids" not in columns:
                 await db.execute("ALTER TABLE servers ADD COLUMN dev_telegram_ids TEXT DEFAULT ''")
+
+            # Платёжные шлюзы
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS payment_gateways (
+                    type TEXT PRIMARY KEY,
+                    is_active INTEGER DEFAULT 0,
+                    settings TEXT DEFAULT '{}'
+                )
+            """)
+            for gtype in GATEWAY_TYPES:
+                await db.execute(
+                    "INSERT OR IGNORE INTO payment_gateways (type, is_active, settings) VALUES (?, 0, '{}')",
+                    (gtype,),
+                )
             await db.commit()
 
     async def _fetch_one(self, query: str, params: tuple = ()) -> Optional[dict]:
@@ -309,12 +330,65 @@ class LicenseDB:
                 result.append(s)
         return result
 
+    # ── Платёжные шлюзы ────────────────────────────────────────────
+
+    async def get_all_gateways(self) -> list[dict]:
+        rows = await self._fetch_all("SELECT * FROM payment_gateways ORDER BY type")
+        for r in rows:
+            r["settings"] = json.loads(r.get("settings") or "{}")
+        return rows
+
+    async def get_gateway(self, gtype: str) -> Optional[dict]:
+        row = await self._fetch_one("SELECT * FROM payment_gateways WHERE type = ?", (gtype,))
+        if row:
+            row["settings"] = json.loads(row.get("settings") or "{}")
+        return row
+
+    async def toggle_gateway(self, gtype: str) -> Optional[dict]:
+        gw = await self.get_gateway(gtype)
+        if not gw:
+            return None
+        new_val = 0 if gw["is_active"] else 1
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE payment_gateways SET is_active = ? WHERE type = ?", (new_val, gtype))
+            await db.commit()
+        return await self.get_gateway(gtype)
+
+    async def update_gateway_field(self, gtype: str, field: str, value: str) -> Optional[dict]:
+        gw = await self.get_gateway(gtype)
+        if not gw:
+            return None
+        settings = gw["settings"]
+        settings[field] = value
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE payment_gateways SET settings = ? WHERE type = ?",
+                (json.dumps(settings, ensure_ascii=False), gtype),
+            )
+            await db.commit()
+        return await self.get_gateway(gtype)
+
+    async def clear_gateway_field(self, gtype: str, field: str) -> Optional[dict]:
+        gw = await self.get_gateway(gtype)
+        if not gw:
+            return None
+        settings = gw["settings"]
+        settings.pop(field, None)
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE payment_gateways SET settings = ? WHERE type = ?",
+                (json.dumps(settings, ensure_ascii=False), gtype),
+            )
+            await db.commit()
+        return await self.get_gateway(gtype)
+
     async def export_backup(self) -> dict:
         servers = await self.get_all_servers()
         interval = await self.get_check_interval()
         grace = await self.get_offline_grace_days()
         support = await self.get_setting("support_url")
         community = await self.get_setting("community_url")
+        gateways = await self.get_all_gateways()
         return {
             "servers": servers,
             "settings": {
@@ -323,6 +397,7 @@ class LicenseDB:
                 "support_url": support,
                 "community_url": community,
             },
+            "payment_gateways": gateways,
         }
 
     async def import_backup(self, data: dict):
@@ -353,6 +428,12 @@ class LicenseDB:
                 await db.execute(
                     "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                     (key, str(val)),
+                )
+            for gw in data.get("payment_gateways", []):
+                s = gw.get("settings", {})
+                await db.execute(
+                    "INSERT OR REPLACE INTO payment_gateways (type, is_active, settings) VALUES (?, ?, ?)",
+                    (gw["type"], gw.get("is_active", 0), json.dumps(s, ensure_ascii=False)),
                 )
             await db.commit()
 

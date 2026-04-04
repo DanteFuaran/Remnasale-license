@@ -158,7 +158,7 @@ def user_servers_kb(servers: list[dict]) -> InlineKeyboardMarkup:
 def user_server_kb(server: dict, support_url: str = "", community_url: str = "") -> InlineKeyboardMarkup:
     sid = server["id"]
     buttons = [
-        [InlineKeyboardButton(text="🔄 Продлить", callback_data=f"uext:{sid}", style="primary")],
+        [InlineKeyboardButton(text="🔄 Продлить", callback_data=f"uext:{sid}")],
     ]
     link_row = []
     if support_url:
@@ -170,8 +170,16 @@ def user_server_kb(server: dict, support_url: str = "", community_url: str = "")
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def setting_edit_kb(current: str, clear_cb: str, back_cb: str) -> InlineKeyboardMarkup:
+def setting_edit_kb(clear_cb: str, back_cb: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🗑 Очистить", callback_data=clear_cb, style="danger")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=back_cb, style="primary")],
+    ])
+
+
+def setting_edit_pending_kb(accept_cb: str, clear_cb: str, back_cb: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Принять", callback_data=accept_cb, style="success")],
         [InlineKeyboardButton(text="🗑 Очистить", callback_data=clear_cb, style="danger")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data=back_cb, style="primary")],
     ])
@@ -185,10 +193,22 @@ def backup_kb() -> InlineKeyboardMarkup:
     ])
 
 
-def settings_kb(check_interval: int, offline_grace_days: int,
-                support_url: str = "", community_url: str = "") -> InlineKeyboardMarkup:
+def settings_kb(support_url: str = "", community_url: str = "") -> InlineKeyboardMarkup:
     support_display = support_url or "Не указана"
     community_display = community_url or "Не указано"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Настройка синхронизации", callback_data="settings_sync")],
+        [
+            InlineKeyboardButton(text=f"🆘 {support_display}", callback_data="settings_support_url"),
+            InlineKeyboardButton(text=f"👥 {community_display}", callback_data="settings_community_url"),
+        ],
+        [InlineKeyboardButton(text="💳 Платёжные системы", callback_data="settings_payments")],
+        [InlineKeyboardButton(text="💾 Управление БД", callback_data="backup_menu")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="main", style="primary")],
+    ])
+
+
+def sync_kb(check_interval: int, offline_grace_days: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text=f"🔄 Частота проверки: {check_interval} мин.",
@@ -198,15 +218,49 @@ def settings_kb(check_interval: int, offline_grace_days: int,
             text=f"📡 Автономность: {offline_grace_days} дн.",
             callback_data="settings_offline_grace",
         )],
-        [InlineKeyboardButton(
-            text=f"🆘 Поддержка: {support_display}",
-            callback_data="settings_support_url",
-        )],
-        [InlineKeyboardButton(
-            text=f"👥 Сообщество: {community_display}",
-            callback_data="settings_community_url",
-        )],
-        [InlineKeyboardButton(text="💳 Платёжные системы", callback_data="settings_payments")],
-        [InlineKeyboardButton(text="💾 Бэкап",            callback_data="backup_menu")],
-        [InlineKeyboardButton(text="🏠 Главное меню",     callback_data="main", style="primary")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary")],
     ])
+
+
+def payments_kb(gateways: list[dict]) -> InlineKeyboardMarkup:
+    from database import GATEWAY_TYPES
+    buttons = []
+    for gw in gateways:
+        gtype = gw["type"]
+        meta = GATEWAY_TYPES.get(gtype, {})
+        label = meta.get("label", gtype)
+        status = "🟢" if gw["is_active"] else "🔴"
+        buttons.append([
+            InlineKeyboardButton(text=f"{label}", callback_data=f"gw:{gtype}"),
+            InlineKeyboardButton(text=status, callback_data=f"gwt:{gtype}"),
+        ])
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def gateway_detail_kb(gw: dict) -> InlineKeyboardMarkup:
+    from database import GATEWAY_TYPES
+    gtype = gw["type"]
+    meta = GATEWAY_TYPES.get(gtype, {})
+    fields = meta.get("fields", {})
+    settings = gw.get("settings", {})
+
+    buttons = []
+    for field_key, field_label in fields.items():
+        val = settings.get(field_key, "")
+        if val:
+            if len(val) > 10:
+                display = val[:4] + "***" + val[-4:]
+            else:
+                display = "***"
+        else:
+            display = "Не указан"
+        buttons.append([InlineKeyboardButton(
+            text=f"{field_label}: {display}",
+            callback_data=f"gwf:{gtype}:{field_key}",
+        )])
+
+    toggle_text = "🔴 Выключить" if gw["is_active"] else "🟢 Включить"
+    buttons.append([InlineKeyboardButton(text=toggle_text, callback_data=f"gwt:{gtype}")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_payments", style="primary")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
