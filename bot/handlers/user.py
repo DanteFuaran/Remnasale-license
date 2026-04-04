@@ -1,4 +1,5 @@
-from aiogram import Router, F
+import asyncio
+from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 
@@ -13,6 +14,25 @@ from bot.keyboards.user import (
 router = Router()
 
 
+async def _auto_delete(bot: Bot, chat_id: int, message_id: int, delay: int = 5):
+    await asyncio.sleep(delay)
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
+
+
+async def _delete_notification(state: FSMContext, bot: Bot, chat_id: int):
+    data = await state.get_data()
+    note_id = data.get("_notification_id")
+    if note_id:
+        try:
+            await bot.delete_message(chat_id, note_id)
+        except Exception:
+            pass
+        await state.update_data(_notification_id=None)
+
+
 def _is_admin(user_id: int) -> bool:
     return user_id == BOT_ADMIN_ID
 
@@ -21,6 +41,7 @@ def _is_admin(user_id: int) -> bool:
 
 @router.callback_query(F.data == "my_servers")
 async def cb_my_servers(call: CallbackQuery, state: FSMContext, db: Database):
+    await _delete_notification(state, call.bot, call.message.chat.id)
     await state.clear()
     user_id = call.from_user.id
     servers = await db.find_servers_by_dev_id(user_id)
@@ -49,7 +70,8 @@ async def cb_my_servers(call: CallbackQuery, state: FSMContext, db: Database):
 # ── Просмотр сервера пользователем ──────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("us:"))
-async def cb_user_server(call: CallbackQuery, db: Database):
+async def cb_user_server(call: CallbackQuery, state: FSMContext, db: Database):
+    await _delete_notification(state, call.bot, call.message.chat.id)
     server_id = int(call.data.split(":")[1])
     server = await db.get_server(server_id)
     if not server:
@@ -80,7 +102,7 @@ async def cb_user_server(call: CallbackQuery, db: Database):
 # ── Продлить (пользователь) ──────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("uext:"))
-async def cb_user_extend(call: CallbackQuery, db: Database):
+async def cb_user_extend(call: CallbackQuery, state: FSMContext, db: Database):
     server_id = int(call.data.split(":")[1])
     server = await db.get_server(server_id)
     if not server:
@@ -89,4 +111,10 @@ async def cb_user_extend(call: CallbackQuery, db: Database):
     dev_ids = (server.get("dev_telegram_ids", "") or "").split(",")
     if str(call.from_user.id) not in [t.strip() for t in dev_ids]:
         return await call.answer("⛔")
-    await call.answer("💳 Платежные системы пока не настроены. Обратитесь к администратору.", show_alert=True)
+    await _delete_notification(state, call.bot, call.message.chat.id)
+    note = await call.message.answer(
+        "⚠️ Нет доступных способов оплаты. Обратитесь к администратору."
+    )
+    await state.update_data(_notification_id=note.message_id)
+    asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
+    await call.answer()

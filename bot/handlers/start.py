@@ -66,6 +66,13 @@ async def cmd_start(message: Message, state: FSMContext, db: Database):
 @router.callback_query(F.data == "main")
 async def cb_main_menu(call: CallbackQuery, state: FSMContext, db: Database):
     await _clear_confirm(state, call.bot, call.message.chat.id)
+    data = await state.get_data()
+    note_id = data.get("_notification_id")
+    if note_id:
+        try:
+            await call.bot.delete_message(call.message.chat.id, note_id)
+        except Exception:
+            pass
     await state.clear()
     support = await db.get_setting("support_url")
     community = await db.get_setting("community_url")

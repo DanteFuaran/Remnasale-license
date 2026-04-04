@@ -49,11 +49,11 @@ def product_selection_kb(selected: set[str]) -> InlineKeyboardMarkup:
             ),
         ])
     bottom_row = [
-        InlineKeyboardButton(text="❌ Отмена", callback_data="purchase_cancel"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="purchase_cancel", style="danger"),
     ]
     if selected:
         bottom_row.append(
-            InlineKeyboardButton(text="Далее ➡️", callback_data="purchase_next_duration"),
+            InlineKeyboardButton(text="Далее ➡️", callback_data="purchase_next_duration", style="success"),
         )
     buttons.append(bottom_row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -73,8 +73,8 @@ def purchase_duration_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="♾️ Безлимит", callback_data="pd:unlimited"),
         ],
         [
-            InlineKeyboardButton(text="⬅️ Назад",       callback_data="purchase_back_products"),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data="purchase_cancel"),
+            InlineKeyboardButton(text="⬅️ Назад",       callback_data="purchase_back_products", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="purchase_cancel", style="primary"),
         ],
     ])
 
@@ -92,8 +92,8 @@ def payment_method_kb(gateways: list[dict]) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text=label, callback_data=f"pm:{gtype}"),
         ])
     buttons.append([
-        InlineKeyboardButton(text="⬅️ Назад",       callback_data="purchase_next_duration"),
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="purchase_cancel"),
+        InlineKeyboardButton(text="⬅️ Назад",       callback_data="purchase_next_duration", style="primary"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="purchase_cancel", style="primary"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -102,12 +102,12 @@ def payment_link_kb(url: str, order_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Оплатить", url=url)],
         [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"pcheck:{order_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="purchase_cancel")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="purchase_cancel", style="danger")],
     ])
 
 
 def stars_payment_kb(order_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⭐ Оплатить Stars", callback_data=f"pstars:{order_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="purchase_cancel")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="purchase_cancel", style="danger")],
     ])

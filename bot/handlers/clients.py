@@ -87,7 +87,7 @@ async def cb_stats(call: CallbackQuery, db: Database):
             active += 1
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary")]
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary")]
     ])
     await call.message.edit_text(
         "📊 <b>Статистика</b>\n\n"
