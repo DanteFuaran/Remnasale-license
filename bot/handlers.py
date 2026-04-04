@@ -69,9 +69,10 @@ def format_server(server: dict) -> str:
 
     # Telegram info
     dev_ids_raw = server.get("dev_telegram_ids", "") or ""
-    first_dev_id = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else "—"
+    first_dev_id = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else ""
+    tg_id_display = f"<code>{first_dev_id}</code>" if first_dev_id else "Не привязан"
     bot_username = server.get("bot_username", "") or ""
-    bot_link = f"@{bot_username}" if bot_username else "—"
+    bot_link = f"@{bot_username}" if bot_username else "Не привязан"
 
     created = "—"
     try:
@@ -101,9 +102,9 @@ def format_server(server: dict) -> str:
 
     return (
         f"Сервер: <b>{server['name']}</b>\n"
-        f"Статус: {emoji} <b>{status_text}</b>\n"
-        f"Телеграм ID: <code>{first_dev_id}</code>\n"
-        f"Телеграм бот: {bot_link}\n"
+        f"{emoji} Статус: <b>{status_text}</b>\n"
+        f"📱 Телеграм ID: {tg_id_display}\n"
+        f"🤖 Телеграм бот: {bot_link}\n"
         f"🌐 IP: {ip_display}\n"
         f"\n"
         f"🔑 Ключ: <code>{key}</code>\n"
