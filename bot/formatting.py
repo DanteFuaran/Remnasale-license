@@ -16,6 +16,9 @@ def format_user_server(server: dict) -> str:
     bot_username = server.get("bot_username", "") or ""
     bot_link = f"@{bot_username}" if bot_username else "Отсутствует"
 
+    sip = server.get("server_ip") or ""
+    ip_display = f"<code>{sip}</code>" if sip else "Отсутствует"
+
     remnasale_ver = server.get("remnasale_version", "") or ""
     ver_suffix = f" {remnasale_ver}" if remnasale_ver else ""
 
@@ -52,7 +55,8 @@ def format_user_server(server: dict) -> str:
         f"\n"
         f"📦 <b>Remnasale{ver_suffix}</b>\n"
         f"<blockquote>{emoji} Статус: {status_text}\n"
-        f"🤖 Телеграм бот: {bot_link}</blockquote>\n"
+        f"🤖 Телеграм бот: {bot_link}\n"
+        f"🌐 IP: {ip_display}</blockquote>\n"
         f"\n"
         f"📦 <b>Support</b>\n"
         f"<blockquote>⭕ Статус: Не куплено\n"
