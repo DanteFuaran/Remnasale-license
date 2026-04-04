@@ -80,23 +80,10 @@ async def cb_role_switch(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await state.clear()
-    servers = await db.find_servers_by_dev_id(call.from_user.id)
-    if not servers:
-        await call.message.edit_text(
-            "👤 <b>Режим пользователя</b>\n\nУ вас нет привязанных серверов.",
-            reply_markup=user_view_empty_kb(),
-        )
-    elif len(servers) == 1:
-        server = servers[0]
-        support = await db.get_setting("support_url")
-        community = await db.get_setting("community_url")
-        await call.message.edit_text(
-            format_user_server(server),
-            reply_markup=user_view_server_kb(server, support, community),
-        )
-    else:
-        await call.message.edit_text(
-            "🖥️ <b>Ваши серверы:</b>",
-            reply_markup=user_view_servers_kb(servers),
-        )
+    support = await db.get_setting("support_url")
+    community = await db.get_setting("community_url")
+    await call.message.edit_text(
+        "🏠 <b>Главное меню</b>",
+        reply_markup=user_main_menu_kb(support, community),
+    )
     await call.answer()

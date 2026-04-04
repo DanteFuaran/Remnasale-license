@@ -3,6 +3,7 @@ import logging
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.types import BotCommand
 
 from config import BOT_TOKEN, API_HOST, API_PORT, DATABASE_PATH
 from database import LicenseDB
@@ -18,6 +19,7 @@ async def main():
     await db.init()
 
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+    await bot.set_my_commands([BotCommand(command="start", description="Главное меню")])
     dp = Dispatcher()
     dp["db"] = db
     setup_routers(dp)
