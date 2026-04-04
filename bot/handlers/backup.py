@@ -408,18 +408,37 @@ async def _should_run_autobackup(db: Database) -> bool:
         return False
     if not settings["bot_token"] or not settings["chat_id"]:
         return False
-    last = settings.get("last_backup_at", "")
-    if not last:
-        return True
-    try:
-        dt = datetime.fromisoformat(last)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-    except (ValueError, TypeError):
-        return True
+
     freq = settings.get("frequency", "daily")
-    threshold = AUTOBACKUP_THRESHOLDS.get(freq, timedelta(hours=23))
-    return (datetime.now(timezone.utc) - dt) >= threshold
+    now = datetime.now(MSK)
+    last = settings.get("last_backup_at", "")
+
+    last_dt_msk = None
+    if last:
+        try:
+            dt = datetime.fromisoformat(last)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            last_dt_msk = dt.astimezone(MSK)
+        except (ValueError, TypeError):
+            pass
+
+    if freq == "hourly":
+        # Запускаем в начале каждого часа (00, 01, 02, ...)
+        if now.minute != 0:
+            return False
+        if last_dt_msk is None:
+            return True
+        # Не запускать снова в том же часу
+        return last_dt_msk.strftime("%Y-%m-%d %H") != now.strftime("%Y-%m-%d %H")
+    else:
+        # Все остальные варианты (daily, weekly, monthly) — в 15:00 МСК
+        if now.hour != 15 or now.minute != 0:
+            return False
+        if last_dt_msk is None:
+            return True
+        threshold = AUTOBACKUP_THRESHOLDS.get(freq, timedelta(hours=23))
+        return (datetime.now(timezone.utc) - last_dt_msk.astimezone(timezone.utc)) >= threshold
 
 
 async def send_autobackup(db: Database, manual: bool = False) -> bool:
