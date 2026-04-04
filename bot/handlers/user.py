@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery
 
 from config import BOT_ADMIN_ID
 from database import Database
+from bot.banner import show
 from bot.formatting import format_user_server
 from bot.keyboards.user import (
     user_servers_kb, user_server_kb,
@@ -45,25 +46,20 @@ async def cb_my_servers(call: CallbackQuery, state: FSMContext, db: Database):
     await state.clear()
     user_id = call.from_user.id
     servers = await db.find_servers_by_dev_id(user_id)
+    banner = await db.get_setting("banner_file_id")
     if not servers:
-        await call.message.edit_text(
-            "🖥 <b>Мои серверы</b>\n\nУ вас пока нет серверов.",
-            reply_markup=user_servers_kb([]),
-        )
+        await show(call, "🖥 <b>Мои серверы</b>\n\nУ вас пока нет серверов.",
+                   reply_markup=user_servers_kb([]), banner=banner or "")
         return await call.answer()
     if len(servers) == 1:
         server = servers[0]
         support = await db.get_setting("support_url")
         community = await db.get_setting("community_url")
-        await call.message.edit_text(
-            format_user_server(server),
-            reply_markup=user_server_kb(server, support, community),
-        )
+        await show(call, format_user_server(server),
+                   reply_markup=user_server_kb(server, support, community), banner=banner or "")
         return await call.answer()
-    await call.message.edit_text(
-        "🖥 <b>Мои серверы:</b>",
-        reply_markup=user_servers_kb(servers),
-    )
+    await show(call, "🖥 <b>Мои серверы:</b>",
+               reply_markup=user_servers_kb(servers), banner=banner or "")
     await call.answer()
 
 
@@ -86,18 +82,15 @@ async def cb_user_server(call: CallbackQuery, state: FSMContext, db: Database):
         return await call.answer("⛔")
     support = await db.get_setting("support_url")
     community = await db.get_setting("community_url")
+    banner = await db.get_setting("banner_file_id")
     # Admin in role-switch mode
     if _is_admin(call.from_user.id) and not is_dev:
         from bot.keyboards.user import user_view_server_kb
-        await call.message.edit_text(
-            format_user_server(server),
-            reply_markup=user_view_server_kb(server, support, community),
-        )
+        await show(call, format_user_server(server),
+                   reply_markup=user_view_server_kb(server, support, community), banner=banner or "")
     else:
-        await call.message.edit_text(
-            format_user_server(server),
-            reply_markup=user_server_kb(server, support, community),
-        )
+        await show(call, format_user_server(server),
+                   reply_markup=user_server_kb(server, support, community), banner=banner or "")
     await call.answer()
 
 

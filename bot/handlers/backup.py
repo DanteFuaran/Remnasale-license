@@ -12,6 +12,7 @@ from bot.formatting import clients_header
 from bot.keyboards.admin import clients_kb
 from bot.keyboards.settings import backup_kb, autobackup_settings_kb, autobackup_freq_kb
 from bot.states import AutoBackupTokenState, AutoBackupChatIdState
+from bot.banner import show
 
 router = Router()
 
@@ -21,10 +22,11 @@ def _is_admin(user_id: int) -> bool:
 
 
 @router.callback_query(F.data == "backup_menu")
-async def cb_backup_menu(call: CallbackQuery):
+async def cb_backup_menu(call: CallbackQuery, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
-    await call.message.edit_text("💾 <b>Бэкап базы данных</b>", reply_markup=backup_kb())
+    banner = await db.get_setting("banner_file_id")
+    await show(call, "💾 <b>Управление БД</b>", reply_markup=backup_kb(), banner=banner or "")
     await call.answer()
 
 
@@ -54,11 +56,12 @@ async def cb_close_backup_doc(call: CallbackQuery):
 
 
 @router.callback_query(F.data == "backup_load")
-async def cb_backup_load(call: CallbackQuery, state: FSMContext):
+async def cb_backup_load(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await state.set_state("backup_upload")
-    await call.message.edit_text("📤 Отправьте JSON-файл бэкапа:")
+    banner = await db.get_setting("banner_file_id")
+    await show(call, "📤 Отправьте JSON-файл бэкапа:", banner=banner or "")
     await call.answer()
 
 
@@ -117,10 +120,13 @@ async def _get_autobackup_settings(db: Database) -> dict:
 
 
 def _autobackup_header(settings: dict) -> str:
-    freq_map = {"hourly": "Каждый час", "daily": "Ежедневно", "weekly": "Еженедельно", "monthly": "Ежемесячно"}
-    enabled = "🟢 Включён" if settings["enabled"] == "1" else "🔴 Выключен"
-    silent = "🔕 Вкл" if settings["silent_mode"] == "1" else "🔔 Выкл"
+    freq_map = {"hourly": "Каждый час", "daily": "Раз в день", "weekly": "Раз в неделю", "monthly": "Раз в месяц"}
     freq = freq_map.get(settings["frequency"], settings["frequency"])
+
+    token_raw = settings.get("bot_token", "")
+    token_display = f"{token_raw[:5]}..." if token_raw else "Не назначено"
+    chat_id_display = settings.get("chat_id", "") or "Не назначено"
+
     last = settings.get("last_backup_at", "")
     if last:
         try:
@@ -128,17 +134,18 @@ def _autobackup_header(settings: dict) -> str:
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             msk = dt + timedelta(hours=3)
-            last_str = msk.strftime("%d.%m.%Y %H:%M МСК")
+            last_str = msk.strftime("%d.%m.%Y | %H:%M")
         except Exception:
             last_str = "—"
     else:
         last_str = "Не производился"
     return (
-        f"⚙️ <b>Настройка автобэкапа</b>\n\n"
-        f"<blockquote>📦 Статус: {enabled}\n"
-        f"🔇 Тихий режим: {silent}\n"
-        f"🕐 Частота: {freq}\n"
-        f"📅 Последний бэкап: {last_str}</blockquote>"
+        f"⏰ <b>Настройка автобекапа</b>\n\n"
+        f"<blockquote>• <b>Токен бота:</b> {token_display}\n"
+        f"• <b>Получатель:</b> {chat_id_display}\n"
+        f"• <b>Частота:</b> {freq}\n"
+        f"• <b>Последний бекап:</b> {last_str}</blockquote>\n\n"
+        f"<i>ℹ️ Укажите необходимые для бэкапа настройки.</i>"
     )
 
 
@@ -148,10 +155,9 @@ async def cb_autobackup_menu(call: CallbackQuery, state: FSMContext, db: Databas
         return await call.answer("⛔")
     await state.clear()
     settings = await _get_autobackup_settings(db)
-    await call.message.edit_text(
-        _autobackup_header(settings),
-        reply_markup=autobackup_settings_kb(settings),
-    )
+    banner = await db.get_setting("banner_file_id")
+    await show(call, _autobackup_header(settings),
+               reply_markup=autobackup_settings_kb(settings), banner=banner or "")
     await call.answer()
 
 
@@ -165,18 +171,12 @@ async def cb_autobackup_toggle(call: CallbackQuery, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     settings = await _get_autobackup_settings(db)
-    # Проверяем что бот-токен и chat_id заданы перед включением
-    if settings["enabled"] != "1":
-        if not settings["bot_token"] or not settings["chat_id"]:
-            await _notify(call, "⚠️ Сначала укажите бота и получателя.")
-            return
     new_val = "0" if settings["enabled"] == "1" else "1"
     await db.set_setting("autobackup_enabled", new_val)
     settings["enabled"] = new_val
-    await call.message.edit_text(
-        _autobackup_header(settings),
-        reply_markup=autobackup_settings_kb(settings),
-    )
+    banner = await db.get_setting("banner_file_id")
+    await show(call, _autobackup_header(settings),
+               reply_markup=autobackup_settings_kb(settings), banner=banner or "")
     await call.answer()
 
 
@@ -188,26 +188,24 @@ async def cb_autobackup_silent(call: CallbackQuery, db: Database):
     new_val = "0" if settings["silent_mode"] == "1" else "1"
     await db.set_setting("autobackup_silent_mode", new_val)
     settings["silent_mode"] = new_val
-    await call.message.edit_text(
-        _autobackup_header(settings),
-        reply_markup=autobackup_settings_kb(settings),
-    )
+    banner = await db.get_setting("banner_file_id")
+    await show(call, _autobackup_header(settings),
+               reply_markup=autobackup_settings_kb(settings), banner=banner or "")
     await call.answer()
 
 
 @router.callback_query(F.data == "autobackup_set_token")
-async def cb_autobackup_set_token(call: CallbackQuery, state: FSMContext):
+async def cb_autobackup_set_token(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await state.set_state(AutoBackupTokenState.waiting_token)
     await state.update_data(prompt_msg_id=call.message.message_id, prompt_chat_id=call.message.chat.id)
-    await call.message.edit_text(
-        "🤖 <b>Токен бота для бэкапов</b>\n\n"
-        "Введите токен бота, через который будут отправляться бэкапы:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="autobackup_menu", style="danger")],
-        ]),
-    )
+    banner = await db.get_setting("banner_file_id")
+    await show(call, "🤖 <b>Токен бота для бэкапов</b>\n\n"
+               "Введите токен бота, через который будут отправляться бэкапы:",
+               reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                   [InlineKeyboardButton(text="❌ Отмена", callback_data="autobackup_menu", style="danger")],
+               ]), banner=banner or "")
     await call.answer()
 
 
@@ -228,28 +226,26 @@ async def on_autobackup_token(message: Message, state: FSMContext, db: Database)
     kb = autobackup_settings_kb(settings)
     prompt_msg_id = data.get("prompt_msg_id")
     chat_id = data.get("prompt_chat_id") or message.chat.id
+    banner = await db.get_setting("banner_file_id")
     if prompt_msg_id:
-        try:
-            await message.bot.edit_message_text(text, chat_id=chat_id, message_id=prompt_msg_id, reply_markup=kb)
-            return
-        except Exception:
-            pass
-    await message.answer(text, reply_markup=kb)
+        from bot.banner import edit_prompt
+        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, banner=banner or "")
+        return
+    await show(message, text, reply_markup=kb, banner=banner or "")
 
 
 @router.callback_query(F.data == "autobackup_set_chat")
-async def cb_autobackup_set_chat(call: CallbackQuery, state: FSMContext):
+async def cb_autobackup_set_chat(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await state.set_state(AutoBackupChatIdState.waiting_chat_id)
     await state.update_data(prompt_msg_id=call.message.message_id, prompt_chat_id=call.message.chat.id)
-    await call.message.edit_text(
-        "👤 <b>Получатель бэкапов</b>\n\n"
-        "Введите Telegram ID получателя бэкапов:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="autobackup_menu", style="danger")],
-        ]),
-    )
+    banner = await db.get_setting("banner_file_id")
+    await show(call, "👤 <b>Получатель бэкапов</b>\n\n"
+               "Введите Telegram ID получателя бэкапов:",
+               reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                   [InlineKeyboardButton(text="❌ Отмена", callback_data="autobackup_menu", style="danger")],
+               ]), banner=banner or "")
     await call.answer()
 
 
@@ -270,23 +266,21 @@ async def on_autobackup_chat_id(message: Message, state: FSMContext, db: Databas
     kb = autobackup_settings_kb(settings)
     prompt_msg_id = data.get("prompt_msg_id")
     chat_id = data.get("prompt_chat_id") or message.chat.id
+    banner = await db.get_setting("banner_file_id")
     if prompt_msg_id:
-        try:
-            await message.bot.edit_message_text(text, chat_id=chat_id, message_id=prompt_msg_id, reply_markup=kb)
-            return
-        except Exception:
-            pass
-    await message.answer(text, reply_markup=kb)
+        from bot.banner import edit_prompt
+        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, banner=banner or "")
+        return
+    await show(message, text, reply_markup=kb, banner=banner or "")
 
 
 @router.callback_query(F.data == "autobackup_set_freq")
-async def cb_autobackup_set_freq(call: CallbackQuery):
+async def cb_autobackup_set_freq(call: CallbackQuery, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
-    await call.message.edit_text(
-        "🕐 <b>Частота автобэкапа</b>\n\nВыберите периодичность:",
-        reply_markup=autobackup_freq_kb(),
-    )
+    banner = await db.get_setting("banner_file_id")
+    await show(call, "🕐 <b>Частота автобэкапа</b>\n\nВыберите периодичность:",
+               reply_markup=autobackup_freq_kb(), banner=banner or "")
     await call.answer()
 
 
@@ -297,10 +291,9 @@ async def cb_autobackup_freq_select(call: CallbackQuery, db: Database):
     freq = call.data.split(":")[1]
     await db.set_setting("autobackup_frequency", freq)
     settings = await _get_autobackup_settings(db)
-    await call.message.edit_text(
-        _autobackup_header(settings),
-        reply_markup=autobackup_settings_kb(settings),
-    )
+    banner = await db.get_setting("banner_file_id")
+    await show(call, _autobackup_header(settings),
+               reply_markup=autobackup_settings_kb(settings), banner=banner or "")
     await call.answer()
 
 
@@ -309,11 +302,11 @@ async def cb_autobackup_force(call: CallbackQuery, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     settings = await _get_autobackup_settings(db)
-    if not settings["bot_token"] or not settings["chat_id"]:
-        await _notify(call, "⚠️ Сначала укажите бота и получателя.")
-        return
     await call.answer("⏳ Отправляем бэкап...")
-    success = await send_autobackup(db, manual=True)
+    if settings["bot_token"] and settings["chat_id"]:
+        success = await send_autobackup(db, manual=True)
+    else:
+        success = await send_autobackup_local(db, call.bot, call.message.chat.id)
     if success:
         note = await call.message.answer("✅ Бэкап отправлен!")
     else:
@@ -321,11 +314,10 @@ async def cb_autobackup_force(call: CallbackQuery, db: Database):
     asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
     # Обновляем меню
     settings = await _get_autobackup_settings(db)
+    banner = await db.get_setting("banner_file_id")
     try:
-        await call.message.edit_text(
-            _autobackup_header(settings),
-            reply_markup=autobackup_settings_kb(settings),
-        )
+        await show(call, _autobackup_header(settings),
+                   reply_markup=autobackup_settings_kb(settings), banner=banner or "")
     except Exception:
         pass
 
@@ -409,6 +401,40 @@ async def send_autobackup(db: Database, manual: bool = False) -> bool:
                     return True
                 else:
                     return False
+    except Exception:
+        return False
+
+
+async def send_autobackup_local(db: Database, bot: Bot, chat_id: int) -> bool:
+    """Отправляет бэкап через текущий бот в указанный чат (без внешнего бота)."""
+    backup_data = await db.export_backup()
+    raw = json.dumps(backup_data, ensure_ascii=False, indent=2).encode()
+    size = len(raw)
+    if size < 1024 * 1024:
+        size_str = f"{size // 1024}K"
+    else:
+        size_str = f"{size / 1024 / 1024:.1f}M"
+
+    msk = timezone(timedelta(hours=3))
+    date_str = datetime.now(tz=msk).strftime("%d.%m.%Y %H:%M МСК")
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"DFC_License_backup_{ts}.json"
+
+    caption = (
+        f"📦 Приложение: DFC License\n"
+        f"📁 БД\n"
+        f"📏 Размер: {size_str}\n"
+        f"📅 {date_str}\n\n"
+        f"✅ Бекап создан вручную"
+    )
+
+    try:
+        doc = BufferedInputFile(raw, filename=filename)
+        await bot.send_document(chat_id, document=doc, caption=caption)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await db.set_setting("autobackup_last_at", now_iso)
+        return True
     except Exception:
         return False
 

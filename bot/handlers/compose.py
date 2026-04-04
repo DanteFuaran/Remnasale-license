@@ -6,6 +6,7 @@ from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKe
 
 from config import BOT_ADMIN_ID
 from database import Database
+from bot.banner import show
 from bot.formatting import format_server
 from bot.states import SendMessageState
 from bot.keyboards.admin import compose_kb, server_detail_kb
@@ -71,10 +72,9 @@ async def cb_compose_menu(call: CallbackQuery, state: FSMContext, db: Database):
     await state.update_data(server_id=server_id, compose_text=None,
                             prompt_msg_id=call.message.message_id,
                             prompt_chat_id=call.message.chat.id)
-    await call.message.edit_text(
-        _compose_header(server, None),
-        reply_markup=compose_kb(server_id, has_text=False),
-    )
+    banner = await db.get_setting("banner_file_id")
+    await show(call, _compose_header(server, None),
+               reply_markup=compose_kb(server_id, has_text=False), banner=banner or "")
     await call.answer()
 
 
@@ -86,12 +86,16 @@ async def cb_compose_enter_text(call: CallbackQuery, state: FSMContext):
     await state.set_state(SendMessageState.waiting_text)
     await state.update_data(prompt_msg_id=call.message.message_id,
                             prompt_chat_id=call.message.chat.id)
-    await call.message.edit_text(
-        "📝 Введите текст сообщения:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"msg:{server_id}", style="danger")]
-        ]),
-    )
+    banner_id = ""
+    try:
+        from database import Database as _DB
+        # db not available here, use show with empty banner
+    except Exception:
+        pass
+    await show(call, "📝 Введите текст сообщения:",
+               reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                   [InlineKeyboardButton(text="❌ Отмена", callback_data=f"msg:{server_id}", style="danger")]
+               ]))
     await call.answer()
 
 
@@ -213,10 +217,9 @@ async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
                 pass
 
         await state.clear()
-        await call.message.edit_text(
-            f"✅ Сообщение отправлено ({sent_ok}/{len(dev_ids)})\n\n{format_server(server)}",
-            reply_markup=server_detail_kb(server),
-        )
+        banner = await db.get_setting("banner_file_id")
+        await show(call, f"✅ Сообщение отправлено ({sent_ok}/{len(dev_ids)})\n\n{format_server(server)}",
+                   reply_markup=server_detail_kb(server), banner=banner or "")
         await call.answer("✅ Отправлено")
     else:
         await _clear_confirm(state, call.bot, call.message.chat.id)

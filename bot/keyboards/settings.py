@@ -76,43 +76,33 @@ def backup_kb() -> InlineKeyboardMarkup:
 
 FREQ_LABELS = {
     "hourly": "⏱ Каждый час",
-    "daily": "📅 Ежедневно",
-    "weekly": "📆 Еженедельно",
-    "monthly": "🗓 Ежемесячно",
+    "daily": "📅 Раз в день",
+    "weekly": "📆 Раз в неделю",
+    "monthly": "🗓 Раз в месяц",
 }
 
 
 def autobackup_settings_kb(settings: dict) -> InlineKeyboardMarkup:
     enabled = settings.get("enabled") == "1"
     silent = settings.get("silent_mode") == "1"
-    freq = settings.get("frequency", "daily")
-    freq_label = FREQ_LABELS.get(freq, freq)
 
-    token_raw = settings.get("bot_token", "")
-    token_display = f"{token_raw[:8]}..." if token_raw else "Не назначен"
-    chat_id = settings.get("chat_id", "") or "Не назначен"
-
-    toggle_text = "🟢 Вкл" if enabled else "🔴 Выкл"
-    silent_text = "🔕 Вкл" if silent else "🔔 Выкл"
+    toggle_text = "🟢" if enabled else "🔴"
+    silent_text = "🟢" if silent else "🔴"
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📦 Автобэкап", callback_data="_noop"),
+            InlineKeyboardButton(text="Автобэкап", callback_data="autobackup_toggle"),
             InlineKeyboardButton(text=toggle_text, callback_data="autobackup_toggle"),
         ],
         [
-            InlineKeyboardButton(text="🔇 Тихий режим", callback_data="_noop"),
+            InlineKeyboardButton(text="Тихий режим", callback_data="autobackup_silent"),
             InlineKeyboardButton(text=silent_text, callback_data="autobackup_silent"),
         ],
         [
-            InlineKeyboardButton(text=f"🤖 Бот: {token_display}", callback_data="autobackup_set_token"),
+            InlineKeyboardButton(text="🤖 Токен бота", callback_data="autobackup_set_token"),
+            InlineKeyboardButton(text="💬 ID Получателя", callback_data="autobackup_set_chat"),
         ],
-        [
-            InlineKeyboardButton(text=f"👤 Получатель: {chat_id}", callback_data="autobackup_set_chat"),
-        ],
-        [
-            InlineKeyboardButton(text=f"🕐 Частота: {freq_label}", callback_data="autobackup_set_freq"),
-        ],
+        [InlineKeyboardButton(text="🕐 Частота отправки", callback_data="autobackup_set_freq")],
         [InlineKeyboardButton(text="📤 Отправить бэкап сейчас", callback_data="autobackup_force")],
         [
             InlineKeyboardButton(text="⬅️ Назад", callback_data="backup_menu", style="primary"),

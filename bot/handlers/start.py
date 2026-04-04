@@ -6,6 +6,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 
 from config import BOT_ADMIN_ID
 from database import Database
+from bot.banner import show
 from bot.formatting import format_user_server
 from bot.keyboards.admin import main_menu_kb
 from bot.keyboards.user import (
@@ -96,12 +97,7 @@ async def cmd_start(message: Message, state: FSMContext, db: Database):
     is_admin = _is_admin(message.from_user.id)
     kb = user_main_menu_kb(support, community, is_admin=is_admin)
     text = "🏠 <b>Главное меню</b>"
-    if banner:
-        try:
-            await message.answer_photo(photo=banner)
-        except Exception:
-            pass
-    menu_msg = await message.answer(text, reply_markup=kb)
+    menu_msg = await show(message, text, reply_markup=kb, banner=banner or "")
     # Удаляем всё до нового сообщения (саму /start включительно)
     await _clear_chat_bg(message.bot, message.chat.id, menu_msg.message_id - 1)
 
@@ -134,21 +130,22 @@ async def cb_main_menu(call: CallbackQuery, state: FSMContext, db: Database):
     await state.clear()
     support = await db.get_setting("support_url")
     community = await db.get_setting("community_url")
+    banner = await db.get_setting("banner_file_id")
     is_admin = _is_admin(call.from_user.id)
-    await call.message.edit_text(
-        "🏠 <b>Главное меню</b>",
-        reply_markup=user_main_menu_kb(support, community, is_admin=is_admin),
-    )
+    await show(call, "🏠 <b>Главное меню</b>",
+               reply_markup=user_main_menu_kb(support, community, is_admin=is_admin),
+               banner=banner or "")
     await call.answer()
 
 
 @router.callback_query(F.data == "admin_panel")
-async def cb_admin_panel(call: CallbackQuery, state: FSMContext):
+async def cb_admin_panel(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await _clear_confirm(state, call.bot, call.message.chat.id)
     await state.clear()
-    await call.message.edit_text("🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb())
+    banner = await db.get_setting("banner_file_id")
+    await show(call, "🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb(), banner=banner or "")
     await call.answer()
 
 
@@ -163,7 +160,7 @@ async def cb_show_key(call: CallbackQuery, state: FSMContext, db: Database):
         return
 
     key = server.get("license_key", "—")
-    note = await call.message.answer(f"🔑 <code>{key}</code>")
+    note = await call.message.answer(f"<pre>{key}</pre>")
     await state.update_data(_key_note_id=note.message_id)
     asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id, 15))
     await call.answer()
