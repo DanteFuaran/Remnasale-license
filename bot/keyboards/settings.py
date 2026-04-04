@@ -64,9 +64,11 @@ def sync_kb(check_interval: int, offline_grace_days: int) -> InlineKeyboardMarku
 
 def backup_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📥 Сохранить бэкап", callback_data="backup_save")],
-        [InlineKeyboardButton(text="📤 Загрузить бэкап", callback_data="backup_load")],
-        [InlineKeyboardButton(text="⚙️ Настройка автобэкапа", callback_data="autobackup_menu")],
+        [InlineKeyboardButton(text="⚙️ Настройки автобэкапа", callback_data="autobackup_menu")],
+        [
+            InlineKeyboardButton(text="📥 Сохранить", callback_data="backup_save"),
+            InlineKeyboardButton(text="📤 Загрузить", callback_data="backup_load"),
+        ],
         [
             InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
             InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
@@ -105,8 +107,8 @@ def autobackup_settings_kb(settings: dict) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🕐 Частота отправки", callback_data="autobackup_set_freq")],
         [InlineKeyboardButton(text="📤 Отправить бэкап сейчас", callback_data="autobackup_force")],
         [
-            InlineKeyboardButton(text="⬅️ Назад", callback_data="backup_menu", style="primary"),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data="autobackup_cancel", style="danger"),
+            InlineKeyboardButton(text="✅ Принять", callback_data="autobackup_accept", style="success"),
         ],
     ])
 

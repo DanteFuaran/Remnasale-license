@@ -160,7 +160,7 @@ async def cb_show_key(call: CallbackQuery, state: FSMContext, db: Database):
         return
 
     key = server.get("license_key", "—")
-    note = await call.message.answer(f"<pre>{key}</pre>")
+    note = await call.message.answer(f"🔑 <code>{key}</code>")
     await state.update_data(_key_note_id=note.message_id)
     asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id, 15))
     await call.answer()

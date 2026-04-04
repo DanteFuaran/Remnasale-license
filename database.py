@@ -1,7 +1,9 @@
 import aiosqlite
+import gzip
 import json
 import random
 import secrets
+import sqlite3
 import string
 import uuid
 import os
@@ -460,6 +462,22 @@ class LicenseDB:
             },
             "payment_gateways": gateways,
         }
+
+    async def export_sql_gz(self) -> bytes:
+        """Создаёт SQL-дамп базы данных и возвращает его в gzip-сжатом виде."""
+        import io as _io
+        dump_lines = []
+        db_sync = sqlite3.connect(self.path)
+        try:
+            for line in db_sync.iterdump():
+                dump_lines.append(line)
+        finally:
+            db_sync.close()
+        sql_text = "\n".join(dump_lines).encode("utf-8")
+        buf = _io.BytesIO()
+        with gzip.GzipFile(fileobj=buf, mode="wb") as gz:
+            gz.write(sql_text)
+        return buf.getvalue()
 
     async def import_backup(self, data: dict):
         servers = data.get("servers", [])

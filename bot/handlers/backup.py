@@ -16,9 +16,35 @@ from bot.banner import show
 
 router = Router()
 
+MSK = timezone(timedelta(hours=3))
+
 
 def _is_admin(user_id: int) -> bool:
     return user_id == BOT_ADMIN_ID
+
+
+def _backup_filename() -> str:
+    now = datetime.now(tz=MSK)
+    return f"dfc-license_{now.strftime('%d-%m-%y_%H-%M')}.sql.gz"
+
+
+def _backup_caption(raw: bytes, manual: bool = True) -> str:
+    size = len(raw)
+    if size < 1024:
+        size_str = f"{size}B"
+    elif size < 1024 * 1024:
+        size_str = f"{size // 1024}K"
+    else:
+        size_str = f"{size / 1024 / 1024:.1f}M"
+    date_str = datetime.now(tz=MSK).strftime("%d.%m.%Y %H:%M МСК")
+    method = "вручную" if manual else "автоматически"
+    return (
+        f"📦 Приложение: DFC License\n"
+        f"📁 БД\n"
+        f"📏 Размер: {size_str}\n"
+        f"📅 {date_str}\n\n"
+        f"✅ Бекап создан {method}"
+    )
 
 
 @router.callback_query(F.data == "backup_menu")
@@ -35,11 +61,12 @@ async def cb_backup_save(call: CallbackQuery, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await call.answer("⏳ Создаём бэкап...")
-    data = await db.export_backup()
-    buf = io.BytesIO(json.dumps(data, ensure_ascii=False, indent=2).encode())
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    raw = await db.export_sql_gz()
+    filename = _backup_filename()
+    caption = _backup_caption(raw, manual=True)
     await call.message.answer_document(
-        BufferedInputFile(buf.read(), filename=f"backup_{ts}.json"),
+        BufferedInputFile(raw, filename=filename),
+        caption=caption,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Закрыть", callback_data="close_backup_doc", style="success")],
         ]),
@@ -155,6 +182,14 @@ async def cb_autobackup_menu(call: CallbackQuery, state: FSMContext, db: Databas
         return await call.answer("⛔")
     await state.clear()
     settings = await _get_autobackup_settings(db)
+    # Сохраняем снимок настроек для отката при нажатии "Отмена"
+    await state.update_data(_ab_snapshot={
+        "autobackup_enabled": settings["enabled"],
+        "autobackup_silent_mode": settings["silent_mode"],
+        "autobackup_bot_token": settings["bot_token"],
+        "autobackup_chat_id": settings["chat_id"],
+        "autobackup_frequency": settings["frequency"],
+    })
     banner = await db.get_setting("banner_file_id")
     await show(call, _autobackup_header(settings),
                reply_markup=autobackup_settings_kb(settings), banner=banner or "")
@@ -166,11 +201,43 @@ async def cb_noop(call: CallbackQuery):
     await call.answer()
 
 
+@router.callback_query(F.data == "autobackup_cancel")
+async def cb_autobackup_cancel(call: CallbackQuery, state: FSMContext, db: Database):
+    """Отмена — откат к сохранённому снимку настроек."""
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    data = await state.get_data()
+    snapshot = data.get("_ab_snapshot")
+    if snapshot:
+        for key, val in snapshot.items():
+            await db.set_setting(key, val)
+    await state.clear()
+    banner = await db.get_setting("banner_file_id")
+    await show(call, "💾 <b>Управление БД</b>", reply_markup=backup_kb(), banner=banner or "")
+    await call.answer()
+
+
+@router.callback_query(F.data == "autobackup_accept")
+async def cb_autobackup_accept(call: CallbackQuery, state: FSMContext, db: Database):
+    """Принять — применить изменения, вернуться в меню БД."""
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await state.clear()
+    banner = await db.get_setting("banner_file_id")
+    await show(call, "💾 <b>Управление БД</b>", reply_markup=backup_kb(), banner=banner or "")
+    await call.answer()
+
+
 @router.callback_query(F.data == "autobackup_toggle")
 async def cb_autobackup_toggle(call: CallbackQuery, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     settings = await _get_autobackup_settings(db)
+    # Если пытаемся включить — проверяем наличие токена и получателя
+    if settings["enabled"] != "1":
+        if not settings["bot_token"] or not settings["chat_id"]:
+            await _notify(call, "⚠️ Сначала укажите токен бота и ID получателя")
+            return
     new_val = "0" if settings["enabled"] == "1" else "1"
     await db.set_setting("autobackup_enabled", new_val)
     settings["enabled"] = new_val
@@ -305,13 +372,14 @@ async def cb_autobackup_force(call: CallbackQuery, db: Database):
     await call.answer("⏳ Отправляем бэкап...")
     if settings["bot_token"] and settings["chat_id"]:
         success = await send_autobackup(db, manual=True)
+        if not success:
+            note = await call.message.answer("❌ Ошибка отправки бэкапа.")
+            asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
     else:
         success = await send_autobackup_local(db, call.bot, call.message.chat.id)
-    if success:
-        note = await call.message.answer("✅ Бэкап отправлен!")
-    else:
-        note = await call.message.answer("❌ Ошибка отправки бэкапа.")
-    asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
+        if not success:
+            note = await call.message.answer("❌ Ошибка отправки бэкапа.")
+            asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
     # Обновляем меню
     settings = await _get_autobackup_settings(db)
     banner = await db.get_setting("banner_file_id")
@@ -353,7 +421,7 @@ async def _should_run_autobackup(db: Database) -> bool:
 
 
 async def send_autobackup(db: Database, manual: bool = False) -> bool:
-    """Создаёт и отправляет JSON-бэкап через указанный бот + chat_id."""
+    """Создаёт и отправляет SQL-бэкап через указанный бот + chat_id."""
     import aiohttp
     settings = await _get_autobackup_settings(db)
     bot_token = settings["bot_token"]
@@ -362,28 +430,9 @@ async def send_autobackup(db: Database, manual: bool = False) -> bool:
     if not bot_token or not chat_id:
         return False
 
-    backup_data = await db.export_backup()
-    raw = json.dumps(backup_data, ensure_ascii=False, indent=2).encode()
-    size = len(raw)
-    if size < 1024 * 1024:
-        size_str = f"{size // 1024}K"
-    else:
-        size_str = f"{size / 1024 / 1024:.1f}M"
-
-    msk = timezone(timedelta(hours=3))
-    date_str = datetime.now(tz=msk).strftime("%d.%m.%Y %H:%M МСК")
-    method = "вручную" if manual else "автоматически"
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"DFC_License_backup_{ts}.json"
-
-    caption = (
-        f"📦 Приложение: DFC License\n"
-        f"📁 БД\n"
-        f"📏 Размер: {size_str}\n"
-        f"📅 {date_str}\n\n"
-        f"✅ Бекап создан {method}"
-    )
+    raw = await db.export_sql_gz()
+    filename = _backup_filename()
+    caption = _backup_caption(raw, manual=manual)
 
     url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
 
@@ -391,7 +440,7 @@ async def send_autobackup(db: Database, manual: bool = False) -> bool:
         form = aiohttp.FormData()
         form.add_field("chat_id", chat_id)
         form.add_field("caption", caption)
-        form.add_field("document", raw, filename=filename, content_type="application/json")
+        form.add_field("document", raw, filename=filename, content_type="application/gzip")
 
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data=form, timeout=aiohttp.ClientTimeout(total=30)) as resp:
@@ -407,31 +456,16 @@ async def send_autobackup(db: Database, manual: bool = False) -> bool:
 
 async def send_autobackup_local(db: Database, bot: Bot, chat_id: int) -> bool:
     """Отправляет бэкап через текущий бот в указанный чат (без внешнего бота)."""
-    backup_data = await db.export_backup()
-    raw = json.dumps(backup_data, ensure_ascii=False, indent=2).encode()
-    size = len(raw)
-    if size < 1024 * 1024:
-        size_str = f"{size // 1024}K"
-    else:
-        size_str = f"{size / 1024 / 1024:.1f}M"
-
-    msk = timezone(timedelta(hours=3))
-    date_str = datetime.now(tz=msk).strftime("%d.%m.%Y %H:%M МСК")
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"DFC_License_backup_{ts}.json"
-
-    caption = (
-        f"📦 Приложение: DFC License\n"
-        f"📁 БД\n"
-        f"📏 Размер: {size_str}\n"
-        f"📅 {date_str}\n\n"
-        f"✅ Бекап создан вручную"
-    )
+    raw = await db.export_sql_gz()
+    filename = _backup_filename()
+    caption = _backup_caption(raw, manual=True)
 
     try:
         doc = BufferedInputFile(raw, filename=filename)
-        await bot.send_document(chat_id, document=doc, caption=caption)
+        await bot.send_document(chat_id, document=doc, caption=caption,
+                                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                    [InlineKeyboardButton(text="✅ Закрыть", callback_data="close_backup_doc", style="success")],
+                                ]))
         now_iso = datetime.now(timezone.utc).isoformat()
         await db.set_setting("autobackup_last_at", now_iso)
         return True

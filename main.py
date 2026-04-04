@@ -10,6 +10,7 @@ from database import LicenseDB
 from api import setup_routes
 from bot.handlers import setup_routers
 from bot.handlers.backup import autobackup_loop
+from bot.middleware import ClearNotificationMiddleware
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ async def main():
     await bot.set_my_commands([BotCommand(command="start", description="Главное меню")])
     dp = Dispatcher()
     dp["db"] = db
+    dp.callback_query.middleware(ClearNotificationMiddleware())
     setup_routers(dp)
 
     app = web.Application()

@@ -96,6 +96,27 @@ async def cb_user_server(call: CallbackQuery, state: FSMContext, db: Database):
 
 # ── Продлить (пользователь) ──────────────────────────────────────────────────
 
+@router.callback_query(F.data.startswith("uextl:"))
+async def cb_user_extend_from_list(call: CallbackQuery, state: FSMContext, db: Database):
+    """Продлить из списка серверов — Назад вернёт в список серверов."""
+    server_id = int(call.data.split(":")[1])
+    server = await db.get_server(server_id)
+    if not server:
+        note = await call.message.answer("Сервер не найден")
+        asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
+        await call.answer()
+        return
+    dev_ids = (server.get("dev_telegram_ids", "") or "").split(",")
+    if str(call.from_user.id) not in [t.strip() for t in dev_ids] and not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    note = await call.message.answer(
+        "⚠️ Нет доступных способов оплаты. Обратитесь к администратору."
+    )
+    await state.update_data(_notification_id=note.message_id)
+    asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
+    await call.answer()
+
+
 @router.callback_query(F.data.startswith("uext:"))
 async def cb_user_extend(call: CallbackQuery, state: FSMContext, db: Database):
     server_id = int(call.data.split(":")[1])

@@ -1,4 +1,5 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from datetime import datetime
 from bot.keyboards.common import server_status
 
 
@@ -23,9 +24,20 @@ def user_servers_kb(servers: list[dict]) -> InlineKeyboardMarkup:
     buttons = []
     for s in servers:
         emoji, _ = server_status(s)
-        buttons.append([
-            InlineKeyboardButton(text=f"{emoji} {s['name']}", callback_data=f"us:{s['id']}"),
-        ])
+        if not s["expires_at"]:
+            expires_text = "♾"
+        else:
+            try:
+                dt = datetime.fromisoformat(s["expires_at"])
+                expires_text = dt.strftime("%d.%m.%Y")
+            except Exception:
+                expires_text = "—"
+        row = [
+            InlineKeyboardButton(text=s["name"], callback_data=f"us:{s['id']}"),
+            InlineKeyboardButton(text=expires_text, callback_data=f"uextl:{s['id']}"),
+            InlineKeyboardButton(text=emoji, callback_data=f"us:{s['id']}"),
+        ]
+        buttons.append(row)
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="main", style="primary")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -54,9 +66,20 @@ def user_view_servers_kb(servers: list[dict]) -> InlineKeyboardMarkup:
     buttons = []
     for s in servers:
         emoji, _ = server_status(s)
-        buttons.append([
-            InlineKeyboardButton(text=f"{emoji} {s['name']}", callback_data=f"us:{s['id']}"),
-        ])
+        if not s["expires_at"]:
+            expires_text = "♾"
+        else:
+            try:
+                dt = datetime.fromisoformat(s["expires_at"])
+                expires_text = dt.strftime("%d.%m.%Y")
+            except Exception:
+                expires_text = "—"
+        row = [
+            InlineKeyboardButton(text=s["name"], callback_data=f"us:{s['id']}"),
+            InlineKeyboardButton(text=expires_text, callback_data=f"uextl:{s['id']}"),
+            InlineKeyboardButton(text=emoji, callback_data=f"us:{s['id']}"),
+        ]
+        buttons.append(row)
     buttons.append([InlineKeyboardButton(text="🔑 Администрирование", callback_data="main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
