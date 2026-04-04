@@ -92,7 +92,7 @@ def payment_method_kb(gateways: list[dict]) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text=label, callback_data=f"pm:{gtype}"),
         ])
     buttons.append([
-        InlineKeyboardButton(text="⬅️ Назад",       callback_data="purchase_next_duration", style="primary"),
+        InlineKeyboardButton(text="⬅️ Назад",       callback_data="purchase_back_to_dur", style="primary"),
         InlineKeyboardButton(text="🏠 Главное меню", callback_data="purchase_cancel", style="primary"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

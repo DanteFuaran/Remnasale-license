@@ -29,7 +29,19 @@ def settings_kb() -> InlineKeyboardMarkup:
         ],
         [InlineKeyboardButton(text="💳 Платёжные системы", callback_data="settings_payments")],
         [InlineKeyboardButton(text="💾 Управление БД", callback_data="backup_menu")],
+        [InlineKeyboardButton(text="🎨 Брендирование", callback_data="branding_menu")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel", style="primary")],
+    ])
+
+
+def branding_kb(has_banner: bool = False) -> InlineKeyboardMarkup:
+    action_text = "🖼 Изменить банер" if has_banner else "➕ Установить банер"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=action_text, callback_data="branding_change_banner")],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
+        ],
     ])
 
 

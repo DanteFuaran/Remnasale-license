@@ -1,4 +1,5 @@
-from aiogram import Router, F
+import asyncio
+from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -14,6 +15,20 @@ router = Router()
 
 def _is_admin(user_id: int) -> bool:
     return user_id == BOT_ADMIN_ID
+
+
+async def _auto_delete(bot: Bot, chat_id: int, message_id: int, delay: int = 5):
+    await asyncio.sleep(delay)
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
+
+
+async def _notify(call: CallbackQuery, text: str, delay: int = 5):
+    note = await call.message.answer(text)
+    asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id, delay))
+    await call.answer()
 
 
 def _format_gateway_detail_text(gw: dict, meta: dict) -> str:
@@ -56,11 +71,11 @@ async def cb_gateway_detail(call: CallbackQuery, db: Database):
     gtype = call.data.split(":")[1]
     gw = await db.get_gateway(gtype)
     if not gw:
-        await call.answer("Шлюз не найден", show_alert=True)
+        await _notify(call, "Шлюз не найден")
         return
     meta = GATEWAY_TYPES.get(gtype, {})
     if not meta.get("fields"):
-        await call.answer("ℹ️ Шлюз не требует настройки", show_alert=True)
+        await _notify(call, "ℹ️ Шлюз не требует настройки")
         return
     await call.message.edit_text(
         _format_gateway_detail_text(gw, meta),
@@ -76,19 +91,19 @@ async def cb_gateway_test(call: CallbackQuery, db: Database):
     gtype = call.data.split(":")[1]
     gw = await db.get_gateway(gtype)
     if not gw:
-        await call.answer("Шлюз не найден", show_alert=True)
+        await _notify(call, "Шлюз не найден")
         return
     meta = GATEWAY_TYPES.get(gtype, {})
     fields = meta.get("fields", {})
     settings = gw.get("settings", {})
     if fields and not all(settings.get(f) for f in fields):
-        await call.answer("❌ Шлюз не настроен", show_alert=True)
+        await _notify(call, "❌ Шлюз не настроен")
         return
     if not gw["is_active"]:
-        await call.answer("❌ Шлюз выключен", show_alert=True)
+        await _notify(call, "❌ Шлюз выключен")
         return
     label = meta.get("label", gtype)
-    await call.answer(f"🐞 Тестовый платёж {label}: в разработке", show_alert=True)
+    await _notify(call, f"🐞 Тестовый платёж {label}: в разработке")
 
 
 @router.callback_query(F.data.startswith("gwt:"))
@@ -98,7 +113,7 @@ async def cb_gateway_toggle(call: CallbackQuery, db: Database):
     gtype = call.data.split(":")[1]
     gw = await db.toggle_gateway(gtype)
     if not gw:
-        await call.answer("Шлюз не найден", show_alert=True)
+        await _notify(call, "Шлюз не найден")
         return
     status = "🟢 Включён" if gw["is_active"] else "🔴 Выключен"
     gateways = await db.get_all_gateways()

@@ -75,7 +75,9 @@ async def cb_user_server(call: CallbackQuery, state: FSMContext, db: Database):
     server_id = int(call.data.split(":")[1])
     server = await db.get_server(server_id)
     if not server:
-        await call.answer("Сервер не найден", show_alert=True)
+        note = await call.message.answer("Сервер не найден")
+        asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
+        await call.answer()
         return
     dev_ids = (server.get("dev_telegram_ids", "") or "").split(",")
     uid = str(call.from_user.id)
@@ -106,7 +108,9 @@ async def cb_user_extend(call: CallbackQuery, state: FSMContext, db: Database):
     server_id = int(call.data.split(":")[1])
     server = await db.get_server(server_id)
     if not server:
-        await call.answer("Сервер не найден", show_alert=True)
+        note = await call.message.answer("Сервер не найден")
+        asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
+        await call.answer()
         return
     dev_ids = (server.get("dev_telegram_ids", "") or "").split(",")
     if str(call.from_user.id) not in [t.strip() for t in dev_ids]:

@@ -54,11 +54,16 @@ async def cmd_start(message: Message, state: FSMContext, db: Database):
     await state.clear()
     support = await db.get_setting("support_url")
     community = await db.get_setting("community_url")
+    banner = await db.get_setting("banner_file_id")
     is_admin = _is_admin(message.from_user.id)
-    menu_msg = await message.answer(
-        "🏠 <b>Главное меню</b>",
-        reply_markup=user_main_menu_kb(support, community, is_admin=is_admin),
-    )
+    kb = user_main_menu_kb(support, community, is_admin=is_admin)
+    text = "🏠 <b>Главное меню</b>"
+    if banner:
+        try:
+            await message.answer_photo(photo=banner)
+        except Exception:
+            pass
+    menu_msg = await message.answer(text, reply_markup=kb)
     # Удаляем всё до нового сообщения (саму /start включительно)
     await _clear_chat_bg(message.bot, message.chat.id, menu_msg.message_id - 1)
 

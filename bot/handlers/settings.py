@@ -1,4 +1,5 @@
-from aiogram import Router, F
+import asyncio
+from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -7,9 +8,10 @@ from database import Database
 from bot.states import (
     SettingsIntervalState, SettingsOfflineGraceState,
     SettingsSupportUrlState, SettingsCommunityUrlState,
+    BrandingBannerState,
 )
 from bot.keyboards.settings import (
-    settings_kb, sync_kb, setting_edit_kb, setting_edit_pending_kb,
+    settings_kb, sync_kb, setting_edit_kb, setting_edit_pending_kb, branding_kb,
 )
 
 router = Router()
@@ -322,3 +324,83 @@ async def on_community_url_input(message: Message, state: FSMContext, db: Databa
         except Exception:
             pass
     await message.answer(text, reply_markup=kb)
+
+
+# ── Брендирование ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+async def _auto_delete_s(bot, chat_id: int, message_id: int, delay: int = 5):
+    await asyncio.sleep(delay)
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "branding_menu")
+async def cb_branding_menu(call: CallbackQuery, state: FSMContext, db: Database):
+    await state.clear()
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    banner = await db.get_setting("banner_file_id")
+    kb = branding_kb(has_banner=bool(banner))
+    if banner:
+        text = "🎨 <b>Брендирование</b>\n\n✅ Банер установлен. Показывается при /start."
+    else:
+        text = "🎨 <b>Брендирование</b>\n\n❌ Банер не установлен."
+    await call.message.edit_text(text, reply_markup=kb)
+    await call.answer()
+
+
+@router.callback_query(F.data == "branding_change_banner")
+async def cb_branding_change_banner(call: CallbackQuery, state: FSMContext):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await state.set_state(BrandingBannerState.waiting_photo)
+    await state.update_data(
+        prompt_msg_id=call.message.message_id,
+        prompt_chat_id=call.message.chat.id,
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="branding_menu", style="danger")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary")],
+    ])
+    await call.message.edit_text(
+        "🖼 <b>Загрузка банера</b>\n\n"
+        "Отправьте изображение (JPG или PNG), которое станет банером главного меню.",
+        reply_markup=kb,
+    )
+    await call.answer()
+
+
+@router.message(BrandingBannerState.waiting_photo)
+async def on_banner_photo(message: Message, state: FSMContext, db: Database):
+    if not _is_admin(message.from_user.id):
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    if not message.photo:
+        note = await message.answer("⚠️ Необходимо отправить фото (JPG или PNG).")
+        asyncio.create_task(_auto_delete_s(message.bot, message.chat.id, note.message_id))
+        return
+    file_id = message.photo[-1].file_id
+    await db.set_setting("banner_file_id", file_id)
+    data = await state.get_data()
+    await state.clear()
+    note = await message.answer("✅ Банер успешно установлен!")
+    asyncio.create_task(_auto_delete_s(message.bot, message.chat.id, note.message_id))
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    kb = branding_kb(has_banner=True)
+    text = "🎨 <b>Брендирование</b>\n\n✅ Банер установлен. Показывается при /start."
+    if prompt_msg_id:
+        try:
+            await message.bot.edit_message_text(
+                text, chat_id=chat_id,
+                message_id=prompt_msg_id, reply_markup=kb,
+            )
+            return
+        except Exception:
+            pass
+    await message.bot.send_message(chat_id, text, reply_markup=kb)

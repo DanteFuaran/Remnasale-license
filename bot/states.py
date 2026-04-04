@@ -40,3 +40,7 @@ class PurchaseState(StatesGroup):
     selecting_duration = State()
     selecting_payment = State()
     waiting_payment = State()
+
+
+class BrandingBannerState(StatesGroup):
+    waiting_photo = State()

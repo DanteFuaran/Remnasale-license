@@ -2,7 +2,7 @@ import io
 import json
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message, Document, BufferedInputFile
+from aiogram.types import CallbackQuery, Message, Document, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from datetime import datetime
 
 from config import BOT_ADMIN_ID
@@ -36,9 +36,19 @@ async def cb_backup_save(call: CallbackQuery, db: Database):
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     await call.message.answer_document(
         BufferedInputFile(buf.read(), filename=f"backup_{ts}.json"),
-        caption="✅ Бэкап готов",
-        reply_markup=backup_kb(),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Закрыть", callback_data="close_backup_doc", style="success")],
+        ]),
     )
+
+
+@router.callback_query(F.data == "close_backup_doc")
+async def cb_close_backup_doc(call: CallbackQuery):
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    await call.answer()
 
 
 @router.callback_query(F.data == "backup_load")

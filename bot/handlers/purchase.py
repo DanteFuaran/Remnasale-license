@@ -51,6 +51,17 @@ async def _delete_notification(state: FSMContext, bot: Bot, chat_id: int):
         await state.update_data(_notification_id=None)
 
 
+def _is_admin(user_id: int) -> bool:
+    return user_id == BOT_ADMIN_ID
+
+
+async def _notify(call: CallbackQuery, text: str, delay: int = 5):
+    """Send a chat notification that auto-deletes."""
+    note = await call.message.answer(text)
+    asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id, delay))
+    await call.answer()
+
+
 _selection_quote = "\n\n".join(
     f"• <b>{p['name']}</b> — {p['description']}"
     for p in PRODUCTS.values()
@@ -63,7 +74,23 @@ _SELECTION_TEXT = (
 
 
 def _products_block(selected: set[str]) -> str:
-    """Header + blockquote with products and unlimited price. No trailing prompt."""
+    """Individual blockquote per product. No unlimited line. For payment method screen."""
+    blocks = []
+    for key, p in PRODUCTS.items():
+        if key not in selected:
+            continue
+        blocks.append(
+            f"<blockquote>{p['emoji']} {p['name']} — {_format_price(p['price_monthly'])} ₽/мес</blockquote>"
+        )
+    return (
+        f"🛒 <b>Покупка ключа</b>\n\n"
+        f"Активируемые приложения:\n\n"
+        + "\n".join(blocks)
+    )
+
+
+def _duration_text(selected: set[str]) -> str:
+    """Duration selection screen — combined blockquote with unlimited."""
     product_lines = []
     total_unlimited = 0
     for key, p in PRODUCTS.items():
@@ -76,12 +103,9 @@ def _products_block(selected: set[str]) -> str:
     return (
         f"🛒 <b>Покупка ключа</b>\n\n"
         f"Активируемые приложения:\n"
-        f"<blockquote>{quote}</blockquote>"
+        f"<blockquote>{quote}</blockquote>\n\n"
+        f"Выберите длительность:"
     )
-
-
-def _duration_text(selected: set[str]) -> str:
-    return _products_block(selected) + "\n\nВыберите длительность:"
 
 
 # ── Начало покупки ──────────────────────────────────────────────────────────
@@ -104,7 +128,7 @@ async def cb_purchase_cancel(call: CallbackQuery, state: FSMContext, db: Databas
     community = await db.get_setting("community_url")
     await call.message.edit_text(
         "🏠 <b>Главное меню</b>",
-        reply_markup=user_main_menu_kb(support, community),
+        reply_markup=user_main_menu_kb(support, community, is_admin=_is_admin(call.from_user.id)),
     )
     await call.answer()
 
@@ -119,13 +143,32 @@ async def cb_purchase_back_products(call: CallbackQuery, state: FSMContext):
     await call.answer()
 
 
+@router.callback_query(F.data == "purchase_back_to_dur")
+async def cb_purchase_back_to_dur(call: CallbackQuery, state: FSMContext):
+    """Назад из экрана способа оплаты → экран выбора длительности."""
+    await _delete_notification(state, call.bot, call.message.chat.id)
+    data = await state.get_data()
+    selected = set(data.get("selected_products", []))
+    await state.set_state(PurchaseState.selecting_duration)
+    try:
+        await call.message.edit_text(_duration_text(selected), reply_markup=purchase_duration_kb())
+    except Exception:
+        await call.message.answer(_duration_text(selected), reply_markup=purchase_duration_kb())
+        try:
+            await call.message.delete()
+        except Exception:
+            pass
+    await call.answer()
+
+
 # ── Выбор продуктов (toggle) ───────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("pt:"), PurchaseState.selecting_products)
 async def cb_product_toggle(call: CallbackQuery, state: FSMContext):
     product_key = call.data.split(":")[1]
     if product_key not in PRODUCTS:
-        return await call.answer("❌ Неизвестный продукт", show_alert=True)
+        await _notify(call, "❌ Неизвестный продукт")
+        return
 
     await _delete_notification(state, call.bot, call.message.chat.id)
     data = await state.get_data()
@@ -149,7 +192,8 @@ async def cb_purchase_next_duration(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     selected = set(data.get("selected_products", []))
     if not selected:
-        return await call.answer("Выберите хотя бы один продукт", show_alert=True)
+        await _notify(call, "Выберите хотя бы один продукт")
+        return
 
     await state.set_state(PurchaseState.selecting_duration)
     await call.message.edit_text(_duration_text(selected), reply_markup=purchase_duration_kb())
@@ -163,7 +207,8 @@ async def cb_purchase_duration(call: CallbackQuery, state: FSMContext, db: Datab
     await _delete_notification(state, call.bot, call.message.chat.id)
     duration_key = call.data.split(":")[1]
     if duration_key not in PURCHASE_DURATIONS:
-        return await call.answer("❌ Неизвестная длительность", show_alert=True)
+        await _notify(call, "❌ Неизвестная длительность")
+        return
     dur = PURCHASE_DURATIONS[duration_key]
 
     data = await state.get_data()
@@ -211,11 +256,13 @@ async def cb_payment_method(call: CallbackQuery, state: FSMContext, db: Database
     duration_key = data.get("selected_duration", "1m")
 
     if not selected:
-        return await call.answer("Ошибка", show_alert=True)
+        await _notify(call, "Ошибка: не указаны продукты")
+        return
 
     dur = PURCHASE_DURATIONS.get(duration_key)
     if not dur:
-        return await call.answer("Ошибка", show_alert=True)
+        await _notify(call, "Ошибка: неверный параметр")
+        return
 
     # Вычисляем сумму
     if duration_key == "unlimited":
@@ -225,7 +272,8 @@ async def cb_payment_method(call: CallbackQuery, state: FSMContext, db: Database
 
     gw = await db.get_gateway(gateway_type)
     if not gw or not gw["is_active"]:
-        return await call.answer("❌ Способ оплаты недоступен", show_alert=True)
+        await _notify(call, "❌ Способ оплаты недоступен")
+        return
 
     currency = await db.get_setting("payment_currency") or "RUB"
 
@@ -250,7 +298,7 @@ async def cb_payment_method(call: CallbackQuery, state: FSMContext, db: Database
     elif gateway_type == "stars":
         await _create_stars_payment(call, state, db, order_id, total, selected, dur)
     else:
-        await call.answer("❌ Шлюз не поддерживается", show_alert=True)
+        await _notify(call, "❌ Шлюз не поддерживается")
 
 
 # ── YooMoney ───────────────────────────────────────────────────────────────
@@ -262,7 +310,8 @@ async def _create_yoomoney_payment(
     settings = gw.get("settings", {})
     wallet_id = settings.get("wallet_id", "")
     if not wallet_id:
-        return await call.answer("❌ ЮМани не настроен. Обратитесь к администратору.", show_alert=True)
+        await _notify(call, "❌ ЮМани не настроен. Обратитесь к администратору.")
+        return
 
     params = {
         "receiver": wallet_id,
@@ -295,7 +344,8 @@ async def _create_heleket_payment(
     merchant_id = settings.get("merchant_id", "")
     api_key = settings.get("api_key", "")
     if not merchant_id or not api_key:
-        return await call.answer("❌ Heleket не настроен. Обратитесь к администратору.", show_alert=True)
+        await _notify(call, "❌ Heleket не настроен. Обратитесь к администратору.")
+        return
 
     callback_url = f"{PUBLIC_URL.rstrip('/')}/api/v1/webhook/heleket" if PUBLIC_URL else ""
 
@@ -338,10 +388,10 @@ async def _create_heleket_payment(
                         await call.answer()
                         return
                 logger.error(f"[heleket] Create payment failed: {resp.status} {resp_data}")
-                await call.answer("❌ Ошибка создания платежа. Попробуйте позже.", show_alert=True)
+                await _notify(call, "❌ Ошибка создания платежа. Попробуйте позже.")
     except Exception as e:
         logger.error(f"[heleket] Error: {e}")
-        await call.answer("❌ Ошибка подключения к Heleket", show_alert=True)
+        await _notify(call, "❌ Ошибка подключения к Heleket")
 
 
 # ── Telegram Stars ─────────────────────────────────────────────────────────
@@ -357,30 +407,34 @@ async def _create_stars_payment(
     description = f"{dur['label']} — {product_names}"
 
     try:
-        link = await call.bot.create_invoice_link(
+        # Отправляем нативный Stars-счёт
+        await call.bot.send_invoice(
+            chat_id=call.message.chat.id,
             title=title[:32],
             description=description[:255],
             payload=order_id,
+            provider_token="",
             currency="XTR",
             prices=[LabeledPrice(label=title[:32], amount=stars_amount)],
         )
-        await db.update_order_payment_url(order_id, link)
+        await db.update_order_payment_url(order_id, f"stars:{stars_amount}")
 
+        # Редактируем текущее сообщение — инфо + кнопки навигации
         text = (
             f"⭐ <b>Оплата через Telegram Stars</b>\n\n"
             f"💰 Сумма: <b>{stars_amount} ⭐</b>\n"
             f"🆔 Заказ: <code>{order_id[:8]}</code>\n\n"
-            f"Нажмите кнопку ниже для оплаты:"
+            f"Нажмите кнопку оплаты на счёте выше."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"⭐ Оплатить {stars_amount} Stars", url=link)],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="main", style="danger")],
+            [InlineKeyboardButton(text="⬅️ Назад",  callback_data="purchase_back_to_dur", style="primary")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="purchase_cancel", style="danger")],
         ])
         await call.message.edit_text(text, reply_markup=kb)
         await call.answer()
     except Exception as e:
         logger.error(f"[stars] Create invoice error: {e}")
-        await call.answer("❌ Ошибка создания счёта Stars", show_alert=True)
+        await _notify(call, "❌ Ошибка создания счёта Stars. Попробуйте позже.")
 
 
 # ── Проверка оплаты ────────────────────────────────────────────────────────
@@ -390,14 +444,15 @@ async def cb_payment_check(call: CallbackQuery, state: FSMContext, db: Database)
     order_id = call.data.split(":")[1]
     order = await db.get_order(order_id)
     if not order:
-        return await call.answer("Заказ не найден", show_alert=True)
+        await _notify(call, "Заказ не найден")
+        return
 
     if order["status"] == "paid":
         # Уже оплачен — показать ключ
         await _deliver_key(call, state, db, order)
         return
 
-    await call.answer("⏳ Оплата не получена. Попробуйте позже.", show_alert=True)
+    await _notify(call, "⏳ Оплата не получена. Попробуйте позже.")
 
 
 # ── Stars pre_checkout_query ───────────────────────────────────────────────

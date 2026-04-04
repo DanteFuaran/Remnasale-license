@@ -19,6 +19,20 @@ def _is_admin(user_id: int) -> bool:
     return user_id == BOT_ADMIN_ID
 
 
+async def _auto_delete(bot: Bot, chat_id: int, message_id: int, delay: int = 5):
+    await asyncio.sleep(delay)
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
+
+
+async def _notify(call: CallbackQuery, text: str, delay: int = 5):
+    note = await call.message.answer(text)
+    asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id, delay))
+    await call.answer()
+
+
 async def _clear_confirm(state: FSMContext, bot: Bot, chat_id: int):
     data = await state.get_data()
     msg_id = data.get("confirm_msg_id")
@@ -112,7 +126,7 @@ async def cb_server_detail(call: CallbackQuery, state: FSMContext, db: Database)
     server_id = int(call.data.split(":")[1])
     server = await db.get_server(server_id)
     if not server:
-        await call.answer("Сервер не найден", show_alert=True)
+        await _notify(call, "Сервер не найден")
         return
     await call.message.edit_text(format_server(server), reply_markup=server_detail_kb(server))
     await call.answer()
@@ -127,10 +141,10 @@ async def cb_toggle_from_list(call: CallbackQuery, db: Database):
     server_id = int(call.data.split(":")[1])
     server = await db.get_server(server_id)
     if not server:
-        await call.answer("Сервер не найден", show_alert=True)
+        await _notify(call, "Сервер не найден")
         return
     if server.get("is_blacklisted"):
-        await call.answer("⛔ Сервер заблокирован", show_alert=True)
+        await _notify(call, "⛔ Сервер заблокирован")
         return
     new_active = 0 if server["is_active"] else 1
     await db.set_server_active(server_id, new_active)
@@ -232,12 +246,12 @@ async def cb_extend_period(call: CallbackQuery, state: FSMContext, db: Database)
     data = await state.get_data()
     server_id = data.get("server_id")
     if not server_id:
-        await call.answer("Ошибка", show_alert=True)
+        await _notify(call, "Ошибка")
         return
     await state.clear()
     server = await db.extend_server(server_id, period)
     if not server:
-        await call.answer("Сервер не найден", show_alert=True)
+        await _notify(call, "Сервер не найден")
         return
     await call.message.edit_text(format_server(server), reply_markup=server_detail_kb(server))
     await call.answer("✅ Тариф обновлён")
@@ -253,7 +267,7 @@ async def cb_reset_ip(call: CallbackQuery, state: FSMContext, db: Database):
     server_id = int(call.data.split(":")[1])
     server = await db.reset_server_ip(server_id)
     if not server:
-        await call.answer("Сервер не найден", show_alert=True)
+        await _notify(call, "Сервер не найден")
         return
     await call.message.edit_text(format_server(server), reply_markup=server_detail_kb(server))
     await call.answer("✅ IP сброшен")
@@ -269,7 +283,7 @@ async def cb_toggle(call: CallbackQuery, state: FSMContext, db: Database):
     server_id = int(call.data.split(":")[1])
     server = await db.get_server(server_id)
     if not server:
-        await call.answer("Сервер не найден", show_alert=True)
+        await _notify(call, "Сервер не найден")
         return
     new_active = 0 if server["is_active"] else 1
     server = await db.set_server_active(server_id, new_active)
@@ -286,7 +300,7 @@ async def cb_blacklist(call: CallbackQuery, state: FSMContext, db: Database):
     server_id = int(call.data.split(":")[1])
     server = await db.get_server(server_id)
     if not server:
-        await call.answer("Сервер не найден", show_alert=True)
+        await _notify(call, "Сервер не найден")
         return
 
     if server.get("is_blacklisted"):
@@ -353,7 +367,7 @@ async def cb_delete(call: CallbackQuery, state: FSMContext, db: Database):
     else:
         server = await db.get_server(server_id)
         if not server:
-            await call.answer("Сервер не найден", show_alert=True)
+            await _notify(call, "Сервер не найден")
             return
         await _clear_confirm(state, call.bot, call.message.chat.id)
         notify = await call.message.answer(

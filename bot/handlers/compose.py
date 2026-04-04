@@ -17,6 +17,20 @@ def _is_admin(user_id: int) -> bool:
     return user_id == BOT_ADMIN_ID
 
 
+async def _auto_delete(bot: Bot, chat_id: int, message_id: int, delay: int = 5):
+    await asyncio.sleep(delay)
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
+
+
+async def _notify(call: CallbackQuery, text: str, delay: int = 5):
+    note = await call.message.answer(text)
+    asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id, delay))
+    await call.answer()
+
+
 async def _clear_confirm(state: FSMContext, bot: Bot, chat_id: int):
     data = await state.get_data()
     msg_id = data.get("confirm_msg_id")
@@ -46,12 +60,12 @@ async def cb_compose_menu(call: CallbackQuery, state: FSMContext, db: Database):
     server_id = int(call.data.split(":")[1])
     server = await db.get_server(server_id)
     if not server:
-        await call.answer("Сервер не найден", show_alert=True)
+        await _notify(call, "Сервер не найден")
         return
     bot_token = server.get("bot_token", "") or ""
     dev_ids = server.get("dev_telegram_ids", "") or ""
     if not bot_token or not dev_ids:
-        await call.answer("❌ Нет данных бота. Дождитесь проверки лицензии клиентом.", show_alert=True)
+        await _notify(call, "❌ Нет данных бота. Дождитесь проверки лицензии клиентом.")
         return
     await state.set_state(SendMessageState.composing)
     await state.update_data(server_id=server_id, compose_text=None,
@@ -117,11 +131,11 @@ async def cb_compose_preview(call: CallbackQuery, state: FSMContext, db: Databas
     server_id = int(call.data.split(":")[1])
     compose_text = data.get("compose_text") or ""
     if not compose_text:
-        await call.answer("Нет текста для предпросмотра", show_alert=True)
+        await _notify(call, "Нет текста для предпросмотра")
         return
     server = await db.get_server(server_id)
     if not server:
-        await call.answer("Сервер не найден", show_alert=True)
+        await _notify(call, "Сервер не найден")
         return
     preview_text = (
         "📩 <b>Сообщение от администратора лицензий</b>\n\n"
@@ -151,7 +165,7 @@ async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
     server_id = int(call.data.split(":")[1])
     compose_text = data.get("compose_text") or ""
     if not compose_text:
-        await call.answer("Нет текста для отправки", show_alert=True)
+        await _notify(call, "Нет текста для отправки")
         return
 
     if data.get("confirm_send") == server_id:
@@ -165,7 +179,7 @@ async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
 
         server = await db.get_server(server_id)
         if not server:
-            await call.answer("Сервер не найден", show_alert=True)
+            await _notify(call, "Сервер не найден")
             return
         bot_token = server.get("bot_token", "") or ""
         dev_ids_raw = server.get("dev_telegram_ids", "") or ""

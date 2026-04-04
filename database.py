@@ -1,6 +1,8 @@
 import aiosqlite
 import json
+import random
 import secrets
+import string
 import uuid
 import os
 from datetime import datetime, timedelta, timezone
@@ -554,8 +556,7 @@ class LicenseDB:
         """Создаёт сервер и привязывает к telegram_id пользователя."""
         key = secrets.token_hex(20)
         now = datetime.now(timezone.utc)
-        product_names = ", ".join(products)
-        name = f"Сервер ({product_names})"
+        name = ''.join(random.choices(string.ascii_letters + string.digits, k=7))
 
         duration_days = {"1m": 30, "3m": 90, "6m": 180, "12m": 365}
         days = duration_days.get(duration, 30)
