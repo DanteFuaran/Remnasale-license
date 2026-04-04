@@ -19,6 +19,18 @@ def _is_admin(user_id: int) -> bool:
     return user_id == BOT_ADMIN_ID
 
 
+def _settings_header() -> str:
+    try:
+        with open("/app/version") as f:
+            for line in f:
+                if line.startswith("version:"):
+                    ver = line.split(":", 1)[1].strip()
+                    return f"DFC License server: Версия {ver}\n\n⚙️ <b>Настройки</b>"
+    except Exception:
+        pass
+    return "⚙️ <b>Настройки</b>"
+
+
 # ── Настройки ──────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "settings_menu")
@@ -26,7 +38,7 @@ async def cb_settings_menu(call: CallbackQuery, state: FSMContext, db: Database)
     await state.clear()
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
-    await call.message.edit_text("⚙️ <b>Настройки</b>", reply_markup=settings_kb())
+    await call.message.edit_text(_settings_header(), reply_markup=settings_kb())
     await call.answer()
 
 
@@ -183,7 +195,7 @@ async def cb_clear_support(call: CallbackQuery, state: FSMContext, db: Database)
     await db.set_setting("support_url", "")
     await state.clear()
     await call.message.edit_text(
-        "✅ Поддержка очищена\n\n⚙️ <b>Настройки</b>",
+        f"✅ Поддержка очищена\n\n{_settings_header()}",
         reply_markup=settings_kb(),
     )
     await call.answer()
@@ -198,7 +210,7 @@ async def cb_accept_support(call: CallbackQuery, state: FSMContext, db: Database
     await db.set_setting("support_url", val)
     await state.clear()
     await call.message.edit_text(
-        f"✅ Поддержка: <b>{val}</b>\n\n⚙️ <b>Настройки</b>",
+        f"✅ Поддержка: <b>{val}</b>\n\n{_settings_header()}",
         reply_markup=settings_kb(),
     )
     await call.answer()
@@ -264,7 +276,7 @@ async def cb_clear_community(call: CallbackQuery, state: FSMContext, db: Databas
     await db.set_setting("community_url", "")
     await state.clear()
     await call.message.edit_text(
-        "✅ Сообщество очищено\n\n⚙️ <b>Настройки</b>",
+        f"✅ Сообщество очищено\n\n{_settings_header()}",
         reply_markup=settings_kb(),
     )
     await call.answer()
@@ -279,7 +291,7 @@ async def cb_accept_community(call: CallbackQuery, state: FSMContext, db: Databa
     await db.set_setting("community_url", val)
     await state.clear()
     await call.message.edit_text(
-        f"✅ Сообщество: <b>{val}</b>\n\n⚙️ <b>Настройки</b>",
+        f"✅ Сообщество: <b>{val}</b>\n\n{_settings_header()}",
         reply_markup=settings_kb(),
     )
     await call.answer()

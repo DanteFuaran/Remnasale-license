@@ -33,11 +33,22 @@ async def _clear_confirm(state: FSMContext, bot: Bot, chat_id: int):
     await state.set_data(keys_to_keep)
 
 
+async def _clear_chat(bot: Bot, chat_id: int, up_to_msg_id: int):
+    """Удаляет все сообщения в чате вплоть до up_to_msg_id включительно."""
+    for msg_id in range(up_to_msg_id, max(0, up_to_msg_id - 200), -1):
+        try:
+            await bot.delete_message(chat_id, msg_id)
+        except Exception:
+            pass
+
+
 # ── /start ────────────────────────────────────────────────────────────────────
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext, db: Database):
     await state.clear()
+    # Удаляем историю чата (включая саму команду /start)
+    await _clear_chat(message.bot, message.chat.id, message.message_id)
     if _is_admin(message.from_user.id):
         return await message.answer("🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb())
     support = await db.get_setting("support_url")
