@@ -2,7 +2,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from bot.keyboards.common import server_status
 
 
-def user_main_menu_kb(support_url: str = "", community_url: str = "") -> InlineKeyboardMarkup:
+def user_main_menu_kb(support_url: str = "", community_url: str = "", is_admin: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="🖥 Мои серверы", callback_data="my_servers")],
         [InlineKeyboardButton(text="➕ Добавить сервер", callback_data="purchase_start")],
@@ -14,6 +14,8 @@ def user_main_menu_kb(support_url: str = "", community_url: str = "") -> InlineK
         link_row.append(InlineKeyboardButton(text="👥 Сообщество", url=f"https://t.me/{community_url}"))
     if link_row:
         buttons.append(link_row)
+    if is_admin:
+        buttons.append([InlineKeyboardButton(text="🔑 Администрирование", callback_data="admin_panel")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 

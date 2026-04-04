@@ -34,12 +34,17 @@ async def _clear_confirm(state: FSMContext, bot: Bot, chat_id: int):
 
 
 async def _clear_chat(bot: Bot, chat_id: int, up_to_msg_id: int):
-    """Удаляет все сообщения в чате вплоть до up_to_msg_id включительно."""
-    for msg_id in range(up_to_msg_id, max(0, up_to_msg_id - 200), -1):
+    """Удаляет предыдущие сообщения в фоне."""
+    for msg_id in range(up_to_msg_id, max(0, up_to_msg_id - 100), -1):
         try:
             await bot.delete_message(chat_id, msg_id)
         except Exception:
             pass
+
+
+async def _clear_chat_bg(bot: Bot, chat_id: int, up_to_msg_id: int):
+    """Запускает очистку чата в фоне через asyncio.create_task."""
+    asyncio.create_task(_clear_chat(bot, chat_id, up_to_msg_id))
 
 
 # ── /start ────────────────────────────────────────────────────────────────────
@@ -47,43 +52,43 @@ async def _clear_chat(bot: Bot, chat_id: int, up_to_msg_id: int):
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext, db: Database):
     await state.clear()
-    # Удаляем историю чата (включая саму команду /start)
-    await _clear_chat(message.bot, message.chat.id, message.message_id)
-    if _is_admin(message.from_user.id):
-        return await message.answer("🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb())
     support = await db.get_setting("support_url")
     community = await db.get_setting("community_url")
-    await message.answer(
+    is_admin = _is_admin(message.from_user.id)
+    menu_msg = await message.answer(
         "🏠 <b>Главное меню</b>",
-        reply_markup=user_main_menu_kb(support, community),
+        reply_markup=user_main_menu_kb(support, community, is_admin=is_admin),
     )
+    # Удаляем всё до нового сообщения (саму /start включительно)
+    await _clear_chat_bg(message.bot, message.chat.id, menu_msg.message_id - 1)
 
 
 @router.callback_query(F.data == "main")
 async def cb_main_menu(call: CallbackQuery, state: FSMContext, db: Database):
     await _clear_confirm(state, call.bot, call.message.chat.id)
     await state.clear()
-    if _is_admin(call.from_user.id):
-        await call.message.edit_text("🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb())
-        return await call.answer()
     support = await db.get_setting("support_url")
     community = await db.get_setting("community_url")
+    is_admin = _is_admin(call.from_user.id)
     await call.message.edit_text(
         "🏠 <b>Главное меню</b>",
-        reply_markup=user_main_menu_kb(support, community),
+        reply_markup=user_main_menu_kb(support, community, is_admin=is_admin),
     )
+    await call.answer()
+
+
+@router.callback_query(F.data == "admin_panel")
+async def cb_admin_panel(call: CallbackQuery, state: FSMContext):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await _clear_confirm(state, call.bot, call.message.chat.id)
+    await state.clear()
+    await call.message.edit_text("🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb())
     await call.answer()
 
 
 @router.callback_query(F.data == "role_switch")
 async def cb_role_switch(call: CallbackQuery, state: FSMContext, db: Database):
-    if not _is_admin(call.from_user.id):
-        return await call.answer("⛔")
-    await state.clear()
-    support = await db.get_setting("support_url")
-    community = await db.get_setting("community_url")
-    await call.message.edit_text(
-        "🏠 <b>Главное меню</b>",
-        reply_markup=user_main_menu_kb(support, community),
-    )
+    """Alias — сейчас просто перенаправляет на cb_main_menu (main)."""
     await call.answer()
+    await cb_main_menu(call, state, db)

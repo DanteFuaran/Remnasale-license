@@ -31,7 +31,7 @@ def clients_kb(servers: list[dict]) -> InlineKeyboardMarkup:
         ]
         buttons.append(row)
     buttons.append([InlineKeyboardButton(text="➕ Добавить сервер", callback_data="add")])
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="main", style="primary")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel", style="primary")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -50,7 +50,7 @@ def period_kb(prefix: str = "ap", back_cb: str = "clients") -> InlineKeyboardMar
         ],
         [
             InlineKeyboardButton(text="⬅️ Назад",      callback_data=back_cb, style="primary"),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
         ],
     ])
 
@@ -104,7 +104,7 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="⬅️ Назад",        callback_data="clients", style="primary"),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
         ],
     ])
 
@@ -120,6 +120,6 @@ def compose_kb(server_id: int, has_text: bool = False) -> InlineKeyboardMarkup:
         ])
     buttons.append([
         InlineKeyboardButton(text="⬅️ Назад", callback_data=f"s:{server_id}", style="primary"),
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

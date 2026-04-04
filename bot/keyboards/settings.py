@@ -27,7 +27,7 @@ def settings_kb() -> InlineKeyboardMarkup:
         ],
         [InlineKeyboardButton(text="💳 Платёжные системы", callback_data="settings_payments")],
         [InlineKeyboardButton(text="💾 Управление БД", callback_data="backup_menu")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="main", style="primary")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel", style="primary")],
     ])
 
 
@@ -43,7 +43,7 @@ def sync_kb(check_interval: int, offline_grace_days: int) -> InlineKeyboardMarku
         )],
         [
             InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+            InlineKeyboardButton(text="🏠 Главноե меню", callback_data="admin_panel", style="primary"),
         ],
     ])
 
@@ -54,7 +54,7 @@ def backup_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📤 Загрузить бэкап", callback_data="backup_load")],
         [
             InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
         ],
     ])
 
