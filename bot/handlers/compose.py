@@ -69,12 +69,12 @@ async def cb_compose_menu(call: CallbackQuery, state: FSMContext, db: Database):
         await _notify(call, "❌ Нет данных бота. Дождитесь проверки лицензии клиентом.")
         return
     await state.set_state(SendMessageState.composing)
-    await state.update_data(server_id=server_id, compose_text=None,
-                            prompt_msg_id=call.message.message_id,
-                            prompt_chat_id=call.message.chat.id)
     banner = await db.get_setting("banner_file_id")
-    await show(call, _compose_header(server, None),
-               reply_markup=compose_kb(server_id, has_text=False), banner=banner or "")
+    sent = await show(call, _compose_header(server, None),
+                      reply_markup=compose_kb(server_id, has_text=False), banner=banner or "")
+    await state.update_data(server_id=server_id, compose_text=None,
+                            prompt_msg_id=sent.message_id,
+                            prompt_chat_id=sent.chat.id)
     await call.answer()
 
 
@@ -84,18 +84,12 @@ async def cb_compose_enter_text(call: CallbackQuery, state: FSMContext):
         return await call.answer("⛔")
     server_id = int(call.data.split(":")[1])
     await state.set_state(SendMessageState.waiting_text)
-    await state.update_data(prompt_msg_id=call.message.message_id,
-                            prompt_chat_id=call.message.chat.id)
-    banner_id = ""
-    try:
-        from database import Database as _DB
-        # db not available here, use show with empty banner
-    except Exception:
-        pass
-    await show(call, "📝 Введите текст сообщения:",
-               reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                   [InlineKeyboardButton(text="❌ Отмена", callback_data=f"msg:{server_id}", style="danger")]
-               ]))
+    sent = await show(call, "📝 Введите текст сообщения:",
+                      reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                          [InlineKeyboardButton(text="❌ Отмена", callback_data=f"msg:{server_id}", style="danger")]
+                      ]))
+    await state.update_data(prompt_msg_id=sent.message_id,
+                            prompt_chat_id=sent.chat.id)
     await call.answer()
 
 

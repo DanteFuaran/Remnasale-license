@@ -507,4 +507,7 @@ async def autobackup_loop(db: Database, bot: Bot = None):
                     await send_autobackup_local(db, bot, BOT_ADMIN_ID, update_last_at=False)
         except Exception:
             pass
-        await asyncio.sleep(60)  # Проверяем каждую минуту
+        # Спим до начала следующей минуты, чтобы не дрейфовать мимо :00
+        _now = datetime.now(MSK)
+        _sleep_secs = 60 - _now.second - _now.microsecond / 1_000_000
+        await asyncio.sleep(_sleep_secs)
