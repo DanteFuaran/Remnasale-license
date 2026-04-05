@@ -258,105 +258,166 @@ EOF
 echo -e "${GREEN}✔${NC}  Файл .env создан."
 echo
 
-# ── Установка nginx + SSL ──────────────────────────────────
+# ── Настройка nginx + SSL ──────────────────────────────────
 _setup_nginx() {
     local domain="$1"
     local upstream_port="9777"
+    local DIR_NGINX="/opt/nginx/"
 
-    # Устанавливаем nginx если нет
-    if ! command -v nginx &>/dev/null; then
-        printf "${GREEN}▶${NC}  Установка nginx...\n"
-        apt-get update -qq >/dev/null 2>&1
-        apt-get install -y -qq nginx >/dev/null 2>&1
-        systemctl enable nginx >/dev/null 2>&1
-        echo -e "${GREEN}✔${NC}  Nginx установлен."
-    else
-        echo -e "${GREEN}✔${NC}  Nginx уже установлен."
-    fi
-
-    # Устанавливаем certbot если нет
-    if ! command -v certbot &>/dev/null; then
-        printf "${GREEN}▶${NC}  Установка certbot...\n"
-        apt-get install -y -qq certbot python3-certbot-nginx >/dev/null 2>&1
-        echo -e "${GREEN}✔${NC}  Certbot установлен."
-    fi
-
-    local NGINX_CONF="/etc/nginx/sites-available/${domain}"
-    local NGINX_LINK="/etc/nginx/sites-enabled/${domain}"
-
-    # Создаём конфиг nginx (HTTP для получения сертификата)
-    cat > "$NGINX_CONF" <<NGINX_EOF
-server {
-    listen 80;
-    server_name ${domain};
-
-    location / {
-        proxy_pass http://127.0.0.1:${upstream_port};
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 300;
-        proxy_send_timeout 300;
-    }
-}
-NGINX_EOF
-
-    # Активируем конфиг
-    ln -sf "$NGINX_CONF" "$NGINX_LINK" 2>/dev/null
-    # Удаляем default если мешает
-    rm -f /etc/nginx/sites-enabled/default 2>/dev/null
-
-    # Проверяем и перезапускаем nginx
-    nginx -t >/dev/null 2>&1 && systemctl restart nginx >/dev/null 2>&1
-
-    # Получаем/обновляем SSL сертификат
+    # === Получаем SSL сертификат если нет ===
     if [[ -d "/etc/letsencrypt/live/${domain}" ]]; then
         echo -e "${GREEN}✔${NC}  SSL сертификат уже существует."
     else
         printf "${GREEN}▶${NC}  Получение SSL сертификата...\n"
-        certbot --nginx -d "${domain}" --non-interactive --agree-tos --register-unsafely-without-email >/dev/null 2>&1
+        # Устанавливаем certbot если нет
+        if ! command -v certbot &>/dev/null; then
+            apt-get update -qq >/dev/null 2>&1
+            apt-get install -y -qq certbot >/dev/null 2>&1
+        fi
+        # Открываем порт 80 для проверки
+        ufw allow 80/tcp >/dev/null 2>&1 || true
+        ufw reload >/dev/null 2>&1 || true
+        # Останавливаем nginx если запущен (чтобы certbot standalone мог занять :80)
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'remnawave-nginx'; then
+            (cd "${DIR_NGINX}" && docker compose stop) >/dev/null 2>&1
+            local _nginx_was_running=true
+        else
+            local _nginx_was_running=false
+        fi
+        certbot certonly --standalone -d "${domain}" \
+            --non-interactive --agree-tos --register-unsafely-without-email \
+            --http-01-port 80 --key-type ecdsa >/dev/null 2>&1
         if [[ $? -ne 0 ]]; then
             echo -e "${YELLOW}⚠  Не удалось получить SSL сертификат. Проверьте DNS для ${domain}.${NC}"
+            $_nginx_was_running && (cd "${DIR_NGINX}" && docker compose up -d) >/dev/null 2>&1
             return
         fi
         echo -e "${GREEN}✔${NC}  SSL сертификат получен."
+        # Восстанавливаем nginx если был запущен
+        $_nginx_was_running && (cd "${DIR_NGINX}" && docker compose up -d) >/dev/null 2>&1
     fi
 
-    # Обновляем конфиг для HTTPS
-    cat > "$NGINX_CONF" <<NGINX_EOF
-server {
-    listen 80;
-    server_name ${domain};
-    return 301 https://\$host\$request_uri;
+    # === Копируем сертификат в /opt/nginx/ssl/ ===
+    local ssl_dst="${DIR_NGINX}ssl/${domain}"
+    mkdir -p "$ssl_dst"
+    cp -fL "/etc/letsencrypt/live/${domain}/fullchain.pem" "${ssl_dst}/fullchain.pem"
+    cp -fL "/etc/letsencrypt/live/${domain}/privkey.pem" "${ssl_dst}/privkey.pem"
+
+    # === Добавляем server-блок в /opt/nginx/nginx.conf ===
+    if [[ -f "${DIR_NGINX}nginx.conf" ]]; then
+        # Удаляем старый блок LICENSE если есть
+        if grep -qF "# BEGIN_LICENSE_BLOCK" "${DIR_NGINX}nginx.conf" 2>/dev/null; then
+            local _t; _t=$(mktemp)
+            sed '/^# BEGIN_LICENSE_BLOCK/,/^# END_LICENSE_BLOCK/d' "${DIR_NGINX}nginx.conf" > "$_t" && cat "$_t" > "${DIR_NGINX}nginx.conf"
+            rm -f "$_t"
+        fi
+    else
+        # Нет nginx.conf — создаём минимальный
+        mkdir -p "${DIR_NGINX}" "${DIR_NGINX}ssl"
+        cat > "${DIR_NGINX}nginx.conf" <<'MINIMAL_NGINX'
+user  nginx;
+worker_processes  auto;
+error_log  /var/log/nginx/error.log notice;
+pid        /run/nginx.pid;
+
+events {
+    worker_connections  8192;
 }
 
-server {
-    listen 443 ssl http2;
-    server_name ${domain};
-
-    ssl_certificate /etc/letsencrypt/live/${domain}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${domain}/privkey.pem;
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    access_log off;
+    sendfile on;
+    keepalive_timeout 65;
 
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
 
-    client_max_body_size 50M;
+# ─── Default Direct
+server {
+    listen 443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}
+} # ─── end http ───
+MINIMAL_NGINX
+    fi
+
+    # Вставляем блок перед '} # ─── end http ───'
+    local _block
+    _block=$(cat <<BLOCK_EOF
+# BEGIN_LICENSE_BLOCK
+server {
+    server_name ${domain};
+    listen 443 ssl;
+    http2 on;
+
+    ssl_certificate "/etc/nginx/ssl/${domain}/fullchain.pem";
+    ssl_certificate_key "/etc/nginx/ssl/${domain}/privkey.pem";
+    ssl_trusted_certificate "/etc/nginx/ssl/${domain}/fullchain.pem";
 
     location / {
+        proxy_http_version 1.1;
         proxy_pass http://127.0.0.1:${upstream_port};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 300;
-        proxy_send_timeout 300;
     }
 }
-NGINX_EOF
+# END_LICENSE_BLOCK
+BLOCK_EOF
+    )
+    local _tmpf; _tmpf=$(mktemp)
+    local _bf; _bf=$(mktemp)
+    printf '%s\n' "$_block" > "$_bf"
+    awk -v blockfile="$_bf" '
+        /^} # ─── end http ───/ {
+            while ((getline line < blockfile) > 0) print line
+            close(blockfile)
+        }
+        { print }
+    ' "${DIR_NGINX}nginx.conf" > "$_tmpf" && cat "$_tmpf" > "${DIR_NGINX}nginx.conf"
+    rm -f "$_tmpf" "$_bf"
 
-    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1
+    # === Создаём docker-compose.yml если нет (автономная установка) ===
+    if [[ ! -f "${DIR_NGINX}docker-compose.yml" ]]; then
+        cat > "${DIR_NGINX}docker-compose.yml" <<'COMPOSE'
+services:
+  nginx:
+    image: nginx:1.28
+    container_name: remnawave-nginx
+    hostname: remnawave-nginx
+    restart: always
+    network_mode: host
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '30m'
+        max-file: '5'
+COMPOSE
+    fi
+
+    # === Перезапускаем Docker nginx ===
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'remnawave-nginx'; then
+        (cd "${DIR_NGINX}" && docker compose up -d >/dev/null 2>&1 && docker exec remnawave-nginx nginx -s reload >/dev/null 2>&1)
+    else
+        (cd "${DIR_NGINX}" && docker compose up -d >/dev/null 2>&1)
+    fi
+
     echo -e "${GREEN}✔${NC}  Nginx настроен для ${YELLOW}${domain}${NC}."
+
+    # === Cron для обновления сертификатов ===
+    local _deploy_hook='for d in /opt/nginx/ssl/*/; do dn=$(basename "$d"); src="/etc/letsencrypt/live/$dn"; [ -f "$src/fullchain.pem" ] && cp -fL "$src/fullchain.pem" "$d/fullchain.pem" && cp -fL "$src/privkey.pem" "$d/privkey.pem"; done; cd /opt/nginx 2>/dev/null && docker compose restart nginx 2>/dev/null'
+    if ! crontab -l 2>/dev/null | grep -q "certbot renew"; then
+        (crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet --deploy-hook '${_deploy_hook}' 2>/dev/null") | crontab -
+    fi
 }
 
 _setup_nginx "$LICENSE_DOMAIN"
