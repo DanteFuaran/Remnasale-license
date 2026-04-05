@@ -260,13 +260,6 @@ do_update() {
         return
     fi
 
-    # Сборка нового образа
-    (
-        cd "$TMP_DIR"
-        DOCKER_BUILDKIT=1 docker build -t remnasale-license:local . >/dev/null 2>&1
-    ) &
-    show_spinner "Сборка образа" "Образ собран"
-
     # Обновляем файлы (кроме .env и data/)
     (
         for f in api.py bot config.py database.py main.py requirements.txt Dockerfile docker-compose.yml version; do
@@ -282,12 +275,13 @@ do_update() {
     ) &
     show_spinner "Обновление файлов" "Файлы обновлены"
 
-    # Перезапускаем контейнер с новым образом
+    # Пересборка образа без кэша и перезапуск
     (
         cd "$COMPOSE_DIR"
+        docker compose build --no-cache >/dev/null 2>&1
         docker compose up -d --force-recreate >/dev/null 2>&1
     ) &
-    show_spinner "Перезапуск контейнера" "Сервер обновлён"
+    show_spinner "Пересборка и перезапуск" "Сервер обновлён"
 
     rm -rf "$TMP_DIR"
 
