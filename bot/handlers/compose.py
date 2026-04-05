@@ -190,26 +190,50 @@ async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
             "📩 <b>Сообщение от администратора лицензий</b>\n\n"
             f"{compose_text}"
         )
+        banner_file_id = await db.get_setting("banner_file_id") or ""
+        reply_markup_payload = {
+            "inline_keyboard": [[
+                {"text": "✅ Закрыть", "callback_data": "license_warning_close"}
+            ]]
+        }
         sent_ok = 0
         for tid in dev_ids:
             try:
                 async with ClientSession(timeout=ClientTimeout(total=10)) as session:
-                    payload = {
-                        "chat_id": int(tid),
-                        "text": msg_text,
-                        "parse_mode": "HTML",
-                        "reply_markup": {
-                            "inline_keyboard": [[
-                                {"text": "✅ Закрыть", "callback_data": "license_warning_close", "style": "success"}
-                            ]]
-                        },
-                    }
-                    async with session.post(
-                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                        json=payload,
-                    ) as resp:
+                    if banner_file_id:
+                        payload = {
+                            "chat_id": int(tid),
+                            "photo": banner_file_id,
+                            "caption": msg_text,
+                            "parse_mode": "HTML",
+                            "reply_markup": reply_markup_payload,
+                        }
+                        endpoint = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+                    else:
+                        payload = {
+                            "chat_id": int(tid),
+                            "text": msg_text,
+                            "parse_mode": "HTML",
+                            "reply_markup": reply_markup_payload,
+                        }
+                        endpoint = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                    async with session.post(endpoint, json=payload) as resp:
                         if resp.status == 200:
                             sent_ok += 1
+                        elif banner_file_id:
+                            # Фallback: баннер не принят — отправляем без фото
+                            fallback = {
+                                "chat_id": int(tid),
+                                "text": msg_text,
+                                "parse_mode": "HTML",
+                                "reply_markup": reply_markup_payload,
+                            }
+                            async with session.post(
+                                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                                json=fallback,
+                            ) as resp2:
+                                if resp2.status == 200:
+                                    sent_ok += 1
             except Exception:
                 pass
 
