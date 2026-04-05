@@ -89,7 +89,8 @@ async def cb_backup_load(call: CallbackQuery, state: FSMContext, db: Database):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отмена", callback_data="backup_load_cancel", style="danger")]
     ])
-    await show(call, "📤 Отправьте файл бэкапа (.sql.gz):", reply_markup=kb, db=db)
+    sent = await show(call, "📤 Отправьте файл бэкапа (.sql.gz):", reply_markup=kb, db=db)
+    await state.update_data(prompt_msg_id=sent.message_id, prompt_chat_id=call.message.chat.id)
     await call.answer()
 
 
@@ -107,11 +108,19 @@ async def backup_load(message: Message, state: FSMContext, db: Database):
     current_state = await state.get_state()
     if current_state != "backup_upload":
         return
+    data_st = await state.get_data()
+    prompt_msg_id = data_st.get("prompt_msg_id")
+    prompt_chat_id = data_st.get("prompt_chat_id") or message.chat.id
     doc: Document = message.document
     fname = doc.file_name or ""
     buf = io.BytesIO()
     await message.bot.download(doc, destination=buf)
     raw = buf.getvalue()
+    # Удаляем сообщение с файлом от пользователя
+    try:
+        await message.delete()
+    except Exception:
+        pass
     try:
         if fname.endswith(".sql.gz") or fname.endswith(".gz"):
             await db.import_sql_gz(raw)
@@ -119,17 +128,24 @@ async def backup_load(message: Message, state: FSMContext, db: Database):
             data = json.loads(raw)
             await db.import_backup(data)
         else:
-            note = await message.answer("❌ Нужен файл бэкапа (.sql.gz)")
-            asyncio.create_task(_auto_delete(message.bot, message.chat.id, note.message_id))
+            note = await message.bot.send_message(prompt_chat_id, "❌ Нужен файл бэкапа (.sql.gz)")
+            asyncio.create_task(_auto_delete(message.bot, prompt_chat_id, note.message_id))
             return
     except Exception as e:
-        note = await message.answer(f"❌ Ошибка импорта: {e}")
-        asyncio.create_task(_auto_delete(message.bot, message.chat.id, note.message_id))
+        note = await message.bot.send_message(prompt_chat_id, f"❌ Ошибка импорта: {e}")
+        asyncio.create_task(_auto_delete(message.bot, prompt_chat_id, note.message_id))
         return
     await state.clear()
     servers = await db.get_all_servers()
-    await show(message, f"✅ Бэкап восстановлен\n\n{clients_header(len(servers))}",
-               reply_markup=clients_kb(servers), db=db)
+    # Редактируем промпт-сообщение с результатом (удаляя «Отправьте файл»)
+    if prompt_msg_id:
+        from bot.banner import edit_prompt
+        await edit_prompt(message.bot, prompt_chat_id, prompt_msg_id,
+                          f"✅ Бэкап восстановлен\n\n{clients_header(len(servers))}",
+                          reply_markup=clients_kb(servers), db=db)
+    else:
+        await show(message, f"✅ Бэкап восстановлен\n\n{clients_header(len(servers))}",
+                   reply_markup=clients_kb(servers), db=db)
 
 
 # ── Автобэкап ────────────────────────────────────────────────────────────────
