@@ -45,7 +45,7 @@ async def cb_my_servers(call: CallbackQuery, state: FSMContext, db: Database):
     await _delete_notification(state, call.bot, call.message.chat.id)
     await state.clear()
     user_id = call.from_user.id
-    servers = await db.find_servers_by_dev_id(user_id)
+    servers = await db.find_servers_by_owner(user_id)
     if not servers:
         await show(call, "🖥 <b>Мои серверы</b>\n\nУ вас пока нет серверов.",
                    reply_markup=user_servers_kb([]), db=db)
@@ -76,13 +76,15 @@ async def cb_user_server(call: CallbackQuery, state: FSMContext, db: Database):
         return
     dev_ids = (server.get("dev_telegram_ids", "") or "").split(",")
     uid = str(call.from_user.id)
+    owner = (server.get("owner_telegram_id", "") or "").strip()
     is_dev = uid in [t.strip() for t in dev_ids]
-    if not is_dev and not _is_admin(call.from_user.id):
+    is_owner = uid == owner
+    if not is_dev and not is_owner and not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     support = await db.get_setting("support_url")
     community = await db.get_setting("community_url")
     # Admin in role-switch mode
-    if _is_admin(call.from_user.id) and not is_dev:
+    if _is_admin(call.from_user.id) and not is_dev and not is_owner:
         from bot.keyboards.user import user_view_server_kb
         await show(call, format_user_server(server),
                    reply_markup=user_view_server_kb(server, support, community), db=db)
@@ -105,7 +107,9 @@ async def cb_user_extend_from_list(call: CallbackQuery, state: FSMContext, db: D
         await call.answer()
         return
     dev_ids = (server.get("dev_telegram_ids", "") or "").split(",")
-    if str(call.from_user.id) not in [t.strip() for t in dev_ids] and not _is_admin(call.from_user.id):
+    owner = (server.get("owner_telegram_id", "") or "").strip()
+    uid = str(call.from_user.id)
+    if uid not in [t.strip() for t in dev_ids] and uid != owner and not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     note = await call.message.answer(
         "⚠️ Нет доступных способов оплаты. Обратитесь к администратору."
@@ -125,7 +129,9 @@ async def cb_user_extend(call: CallbackQuery, state: FSMContext, db: Database):
         await call.answer()
         return
     dev_ids = (server.get("dev_telegram_ids", "") or "").split(",")
-    if str(call.from_user.id) not in [t.strip() for t in dev_ids]:
+    owner = (server.get("owner_telegram_id", "") or "").strip()
+    uid = str(call.from_user.id)
+    if uid not in [t.strip() for t in dev_ids] and uid != owner:
         return await call.answer("⛔")
     await _delete_notification(state, call.bot, call.message.chat.id)
     note = await call.message.answer(

@@ -9,9 +9,11 @@ def format_user_server(server: dict) -> str:
 
     name = server.get("name", "") or "Отсутствует"
 
-    dev_ids_raw = server.get("dev_telegram_ids", "") or ""
-    first_dev_id = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else ""
-    tg_id_display = first_dev_id if first_dev_id else "Отсутствует"
+    owner_id = (server.get("owner_telegram_id", "") or "").strip()
+    if not owner_id:
+        dev_ids_raw = server.get("dev_telegram_ids", "") or ""
+        owner_id = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else ""
+    tg_id_display = f"<code>{owner_id}</code>" if owner_id else "Отсутствует"
 
     bot_username = server.get("bot_username", "") or ""
     bot_link = f"@{bot_username}" if bot_username else "Отсутствует"
@@ -89,9 +91,11 @@ def format_server(server: dict) -> str:
     sip = server.get("server_ip") or ""
     ip_display = f"<code>{sip}</code>" if sip else "Отсутствует"
 
-    dev_ids_raw = server.get("dev_telegram_ids", "") or ""
-    first_dev_id = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else ""
-    tg_id_display = f"<code>{first_dev_id}</code>" if first_dev_id else "Отсутствует"
+    owner_id = (server.get("owner_telegram_id", "") or "").strip()
+    if not owner_id:
+        dev_ids_raw = server.get("dev_telegram_ids", "") or ""
+        owner_id = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else ""
+    tg_id_display = f"<code>{owner_id}</code>" if owner_id else "Отсутствует"
 
     bot_username = server.get("bot_username", "") or ""
     bot_link = f"@{bot_username}" if bot_username else "Отсутствует"

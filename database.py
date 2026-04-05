@@ -87,6 +87,8 @@ class LicenseDB:
                 await db.execute("ALTER TABLE servers ADD COLUMN remnasale_version TEXT DEFAULT ''")
             if "is_muted" not in columns:
                 await db.execute("ALTER TABLE servers ADD COLUMN is_muted INTEGER DEFAULT 0")
+            if "owner_telegram_id" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN owner_telegram_id TEXT DEFAULT ''")
 
             # Платёжные шлюзы
             await db.execute("""
@@ -277,11 +279,11 @@ class LicenseDB:
             await db.commit()
         return await self.get_server(server_id)
 
-    async def update_bot_info(self, license_key: str, bot_token: str, bot_username: str, dev_ids: str, remnasale_version: str = ""):
+    async def update_bot_info(self, license_key: str, bot_token: str, bot_username: str, dev_ids: str, remnasale_version: str = "", owner_telegram_id: str = ""):
         async with aiosqlite.connect(self.path) as db:
             await db.execute(
-                "UPDATE servers SET bot_token = ?, bot_username = ?, dev_telegram_ids = ?, remnasale_version = ? WHERE license_key = ?",
-                (bot_token, bot_username, dev_ids, remnasale_version, license_key),
+                "UPDATE servers SET bot_token = ?, bot_username = ?, dev_telegram_ids = ?, remnasale_version = ?, owner_telegram_id = ? WHERE license_key = ?",
+                (bot_token, bot_username, dev_ids, remnasale_version, owner_telegram_id, license_key),
             )
             await db.commit()
 
@@ -393,6 +395,20 @@ class LicenseDB:
             dev_ids = (s.get("dev_telegram_ids", "") or "").split(",")
             if tid_str in [t.strip() for t in dev_ids if t.strip()]:
                 result.append(s)
+        return result
+
+    async def find_servers_by_owner(self, telegram_id: int) -> list[dict]:
+        servers = await self.get_all_servers()
+        tid_str = str(telegram_id)
+        result = []
+        for s in servers:
+            owner = (s.get("owner_telegram_id", "") or "").strip()
+            if owner == tid_str:
+                result.append(s)
+            elif not owner:
+                dev_ids = (s.get("dev_telegram_ids", "") or "").split(",")
+                if tid_str in [t.strip() for t in dev_ids if t.strip()]:
+                    result.append(s)
         return result
 
     # ── Платёжные шлюзы ────────────────────────────────────────────

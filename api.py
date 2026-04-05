@@ -399,6 +399,7 @@ async def handle_report(request: web.Request) -> web.Response:
     bot_username = data.get("bot_username", "").strip()
     dev_ids = data.get("dev_ids", "").strip()
     remnasale_version = data.get("remnasale_version", "").strip()
+    owner_telegram_id = data.get("owner_telegram_id", "").strip()
 
     if not license_key:
         return web.json_response({"success": False, "reason": "missing_key"}, status=400)
@@ -407,7 +408,7 @@ async def handle_report(request: web.Request) -> web.Response:
     if not server:
         return web.json_response({"success": False, "reason": "not_found"}, status=404)
 
-    await db.update_bot_info(license_key, bot_token, bot_username, dev_ids, remnasale_version)
+    await db.update_bot_info(license_key, bot_token, bot_username, dev_ids, remnasale_version, owner_telegram_id)
     return web.json_response({"success": True})
 
 
