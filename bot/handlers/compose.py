@@ -4,7 +4,7 @@ from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 
-from config import BOT_ADMIN_ID, BOT_TOKEN
+from config import BOT_ADMIN_ID
 from database import Database
 from bot.banner import show
 from bot.formatting import format_server
@@ -69,9 +69,8 @@ async def cb_compose_menu(call: CallbackQuery, state: FSMContext, db: Database):
         await _notify(call, "❌ Нет данных бота. Дождитесь проверки лицензии клиентом.")
         return
     await state.set_state(SendMessageState.composing)
-    banner = await db.get_setting("banner_file_id")
     sent = await show(call, _compose_header(server, None),
-                      reply_markup=compose_kb(server_id, has_text=False), banner=banner or "")
+                      reply_markup=compose_kb(server_id, has_text=False), db=db)
     await state.update_data(server_id=server_id, compose_text=None,
                             prompt_msg_id=sent.message_id,
                             prompt_chat_id=sent.chat.id)
@@ -84,11 +83,10 @@ async def cb_compose_enter_text(call: CallbackQuery, state: FSMContext, db: Data
         return await call.answer("⛔")
     server_id = int(call.data.split(":")[1])
     await state.set_state(SendMessageState.waiting_text)
-    banner = await db.get_setting("banner_file_id")
     sent = await show(call, "📝 Введите текст сообщения:",
                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                           [InlineKeyboardButton(text="❌ Отмена", callback_data=f"msg:{server_id}", style="danger")]
-                      ]), banner=banner or "")
+                      ]), db=db)
     await state.update_data(prompt_msg_id=sent.message_id,
                             prompt_chat_id=sent.chat.id)
     await call.answer()
@@ -118,8 +116,7 @@ async def on_compose_text(message: Message, state: FSMContext, db: Database):
             await message.bot.delete_message(chat_id, prompt_msg_id)
         except Exception:
             pass
-    banner = await db.get_setting("banner_file_id")
-    await show(message, text, reply_markup=kb, banner=banner or "")
+    await show(message, text, reply_markup=kb, db=db)
 
 
 @router.callback_query(F.data.startswith("cmp:"))
@@ -188,65 +185,61 @@ async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
             "📩 <b>Сообщение от администратора лицензий</b>\n\n"
             f"{compose_text}"
         )
+        # Скачиваем байты баннера через наш бот — file_id другому боту недоступен
         banner_file_id = await db.get_setting("banner_file_id") or ""
-        # file_id принадлежит нашему боту — получаем публичный URL для отправки клиентским ботом
-        banner_url = ""
+        banner_bytes = b""
         if banner_file_id:
             try:
-                f = await call.bot.get_file(banner_file_id)
-                banner_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{f.file_path}"
+                buf = await call.bot.download(banner_file_id)
+                if buf:
+                    banner_bytes = buf.getvalue()
             except Exception:
-                banner_url = ""
-        reply_markup_payload = {
-            "inline_keyboard": [[
-                {"text": "✅ Закрыть", "callback_data": "license_warning_close"}
-            ]]
-        }
+                banner_bytes = b""
+        reply_markup_json = (
+            '{"inline_keyboard":[[{"text":"\u2705 \u0417\u0430\u043a\u0440\u044b\u0442\u044c",'
+            '"callback_data":"license_warning_close"}]]}'
+        )
         sent_ok = 0
-        for tid in dev_ids:
-            try:
-                async with ClientSession(timeout=ClientTimeout(total=10)) as session:
-                    if banner_url:
-                        payload = {
-                            "chat_id": int(tid),
-                            "photo": banner_url,
-                            "caption": msg_text,
-                            "parse_mode": "HTML",
-                            "reply_markup": reply_markup_payload,
-                        }
-                        endpoint = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
-                    else:
-                        payload = {
-                            "chat_id": int(tid),
-                            "text": msg_text,
-                            "parse_mode": "HTML",
-                            "reply_markup": reply_markup_payload,
-                        }
-                        endpoint = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-                    async with session.post(endpoint, json=payload) as resp:
+        async with ClientSession(timeout=ClientTimeout(total=15)) as session:
+            for tid in dev_ids:
+                try:
+                    if banner_bytes:
+                        from aiohttp import FormData
+                        form = FormData()
+                        form.add_field("chat_id", str(tid))
+                        form.add_field("caption", msg_text)
+                        form.add_field("parse_mode", "HTML")
+                        form.add_field("reply_markup", reply_markup_json)
+                        form.add_field("photo", banner_bytes,
+                                       filename="banner.jpg", content_type="image/jpeg")
+                        async with session.post(
+                            f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                            data=form,
+                        ) as resp:
+                            if resp.status == 200:
+                                sent_ok += 1
+                                continue
+                    # Fallback / no banner
+                    payload = {
+                        "chat_id": int(tid),
+                        "text": msg_text,
+                        "parse_mode": "HTML",
+                        "reply_markup": {"inline_keyboard": [[
+                            {"text": "✅ Закрыть", "callback_data": "license_warning_close"}
+                        ]]},
+                    }
+                    async with session.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json=payload,
+                    ) as resp:
                         if resp.status == 200:
                             sent_ok += 1
-                        elif banner_url:
-                            # Fallback: URL не принят — отправляем без фото
-                            fallback = {
-                                "chat_id": int(tid),
-                                "text": msg_text,
-                                "parse_mode": "HTML",
-                                "reply_markup": reply_markup_payload,
-                            }
-                            async with session.post(
-                                f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                                json=fallback,
-                            ) as resp2:
-                                if resp2.status == 200:
-                                    sent_ok += 1
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
         await state.clear()
-        banner = await db.get_setting("banner_file_id")
         await show(call, f"✅ Сообщение отправлено ({sent_ok}/{len(dev_ids)})\n\n{format_server(server)}",
-                   reply_markup=server_detail_kb(server), banner=banner or "")
+                   reply_markup=server_detail_kb(server), db=db)
         await call.answer("✅ Отправлено")
     else:
         await _clear_confirm(state, call.bot, call.message.chat.id)

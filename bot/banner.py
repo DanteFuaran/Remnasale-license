@@ -13,13 +13,17 @@ async def show(
     text: str,
     reply_markup: InlineKeyboardMarkup | None = None,
     banner: str = "",
+    db=None,  # Database | None — если передан и banner пустой, загружает banner_file_id автоматически
 ) -> Message:
     """Показать меню с опциональным баннером.
 
     target — CallbackQuery (edit) или Message (send).
     banner — file_id изображения (пустая строка = без баннера).
+    db — если передан и banner пустой, автоматически загружает banner_file_id из настроек.
     Возвращает объект отправленного/отредактированного сообщения.
     """
+    if not banner and db is not None:
+        banner = await db.get_setting("banner_file_id") or ""
     if isinstance(target, CallbackQuery):
         msg = target.message
         if banner:
@@ -67,11 +71,14 @@ async def edit_prompt(
     text: str,
     reply_markup: InlineKeyboardMarkup | None = None,
     banner: str = "",
+    db=None,  # Database | None
 ) -> int:
     """Редактирует ранее отправленное сообщение (prompt_msg_id) с учётом баннера.
 
     Возвращает message_id итогового сообщения.
     """
+    if not banner and db is not None:
+        banner = await db.get_setting("banner_file_id") or ""
     if banner:
         try:
             media = InputMediaPhoto(media=banner, caption=text, parse_mode="HTML")

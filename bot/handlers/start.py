@@ -108,11 +108,10 @@ async def cmd_start(message: Message, state: FSMContext, db: Database):
 
     support = await db.get_setting("support_url")
     community = await db.get_setting("community_url")
-    banner = await db.get_setting("banner_file_id")
     is_admin = _is_admin(message.from_user.id)
     kb = user_main_menu_kb(support, community, is_admin=is_admin)
     text = "🏠 <b>Главное меню</b>"
-    menu_msg = await show(message, text, reply_markup=kb, banner=banner or "")
+    menu_msg = await show(message, text, reply_markup=kb, db=db)
     # Удаляем всё до нового сообщения (саму /start включительно)
     await _clear_chat_bg(message.bot, message.chat.id, menu_msg.message_id - 1)
 
@@ -145,11 +144,10 @@ async def cb_main_menu(call: CallbackQuery, state: FSMContext, db: Database):
     await state.clear()
     support = await db.get_setting("support_url")
     community = await db.get_setting("community_url")
-    banner = await db.get_setting("banner_file_id")
     is_admin = _is_admin(call.from_user.id)
     await show(call, "🏠 <b>Главное меню</b>",
                reply_markup=user_main_menu_kb(support, community, is_admin=is_admin),
-               banner=banner or "")
+               db=db)
     await call.answer()
 
 
@@ -159,8 +157,7 @@ async def cb_admin_panel(call: CallbackQuery, state: FSMContext, db: Database):
         return await call.answer("⛔")
     await _clear_confirm(state, call.bot, call.message.chat.id)
     await state.clear()
-    banner = await db.get_setting("banner_file_id")
-    await show(call, "🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb(), banner=banner or "")
+    await show(call, "🔑 <b>Управление лицензиями</b>", reply_markup=main_menu_kb(), db=db)
     await call.answer()
 
 

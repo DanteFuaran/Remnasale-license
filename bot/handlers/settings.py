@@ -41,8 +41,7 @@ async def cb_settings_menu(call: CallbackQuery, state: FSMContext, db: Database)
     await state.clear()
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
-    banner = await db.get_setting("banner_file_id")
-    await show(call, _settings_header(), reply_markup=settings_kb(), banner=banner or "")
+    await show(call, _settings_header(), reply_markup=settings_kb(), db=db)
     await call.answer()
 
 
@@ -55,9 +54,8 @@ async def cb_settings_sync(call: CallbackQuery, state: FSMContext, db: Database)
         return await call.answer("⛔")
     interval = await db.get_check_interval()
     grace = await db.get_offline_grace_days()
-    banner = await db.get_setting("banner_file_id")
     await show(call, "🔄 <b>Настройка синхронизации</b>",
-               reply_markup=sync_kb(interval, grace), banner=banner or "")
+               reply_markup=sync_kb(interval, grace), db=db)
     await call.answer()
 
 
@@ -70,11 +68,10 @@ async def cb_settings_interval(call: CallbackQuery, state: FSMContext, db: Datab
     await state.set_state(SettingsIntervalState.waiting_interval)
     await state.update_data(prompt_msg_id=call.message.message_id,
                             prompt_chat_id=call.message.chat.id)
-    banner = await db.get_setting("banner_file_id")
     await show(call, "🔄 Введите интервал проверки в <b>минутах</b> (1–1440):",
                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                    [InlineKeyboardButton(text="❌ Отмена", callback_data="settings_sync", style="danger")],
-               ]), banner=banner or "")
+               ]), db=db)
     await call.answer()
 
 
@@ -101,12 +98,11 @@ async def on_interval_input(message: Message, state: FSMContext, db: Database):
     grace = await db.get_offline_grace_days()
     text = f"✅ Интервал: <b>{val} мин.</b>\n\n🔄 <b>Настройка синхронизации</b>"
     kb = sync_kb(interval, grace)
-    banner = await db.get_setting("banner_file_id")
     if prompt_msg_id:
         from bot.banner import edit_prompt
-        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, banner=banner or "")
+        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, db=db)
         return
-    await show(message, text, reply_markup=kb, banner=banner or "")
+    await show(message, text, reply_markup=kb, db=db)
 
 
 # ── Офлайн-период ──────────────────────────────────────────────────────────────
@@ -118,11 +114,10 @@ async def cb_settings_offline_grace(call: CallbackQuery, state: FSMContext, db: 
     await state.set_state(SettingsOfflineGraceState.waiting_days)
     await state.update_data(prompt_msg_id=call.message.message_id,
                             prompt_chat_id=call.message.chat.id)
-    banner = await db.get_setting("banner_file_id")
     await show(call, "📡 Введите количество <b>дней</b> автономной работы (1–365):",
                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                    [InlineKeyboardButton(text="❌ Отмена", callback_data="settings_sync", style="danger")],
-               ]), banner=banner or "")
+               ]), db=db)
     await call.answer()
 
 
@@ -149,12 +144,11 @@ async def on_offline_grace_input(message: Message, state: FSMContext, db: Databa
     grace = await db.get_offline_grace_days()
     text = f"✅ Автономность: <b>{val} дн.</b>\n\n🔄 <b>Настройка синхронизации</b>"
     kb = sync_kb(interval, grace)
-    banner = await db.get_setting("banner_file_id")
     if prompt_msg_id:
         from bot.banner import edit_prompt
-        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, banner=banner or "")
+        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, db=db)
         return
-    await show(message, text, reply_markup=kb, banner=banner or "")
+    await show(message, text, reply_markup=kb, db=db)
 
 
 # ── Настройка поддержки ────────────────────────────────────────────────────────
@@ -178,18 +172,16 @@ async def cb_settings_support_url(call: CallbackQuery, state: FSMContext, db: Da
     await state.update_data(prompt_msg_id=call.message.message_id,
                             prompt_chat_id=call.message.chat.id,
                             pending_value=None, original_value=current)
-    banner = await db.get_setting("banner_file_id")
     await show(call, _support_edit_text(current),
-               reply_markup=setting_edit_kb("clear_support", "settings_menu"), banner=banner or "")
+               reply_markup=setting_edit_kb("clear_support", "settings_menu"), db=db)
     await call.answer()
 async def cb_clear_support(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await db.set_setting("support_url", "")
     await state.clear()
-    banner = await db.get_setting("banner_file_id")
     await show(call, f"✅ Поддержка очищена\n\n{_settings_header()}",
-               reply_markup=settings_kb(), banner=banner or "")
+               reply_markup=settings_kb(), db=db)
     await call.answer()
 
 
@@ -201,9 +193,8 @@ async def cb_accept_support(call: CallbackQuery, state: FSMContext, db: Database
     val = data.get("pending_value") or ""
     await db.set_setting("support_url", val)
     await state.clear()
-    banner = await db.get_setting("banner_file_id")
     await show(call, f"✅ Поддержка: <b>{val}</b>\n\n{_settings_header()}",
-               reply_markup=settings_kb(), banner=banner or "")
+               reply_markup=settings_kb(), db=db)
     await call.answer()
 
 
@@ -222,12 +213,11 @@ async def on_support_url_input(message: Message, state: FSMContext, db: Database
     chat_id = data.get("prompt_chat_id") or message.chat.id
     text = _support_edit_text(raw)
     kb = setting_edit_pending_kb("accept_support", "clear_support", "settings_menu")
-    banner = await db.get_setting("banner_file_id")
     if prompt_msg_id:
         from bot.banner import edit_prompt
-        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, banner=banner or "")
+        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, db=db)
         return
-    await show(message, text, reply_markup=kb, banner=banner or "")
+    await show(message, text, reply_markup=kb, db=db)
 
 
 # ── Настройка сообщества ──────────────────────────────────────────────────────
@@ -251,9 +241,8 @@ async def cb_settings_community_url(call: CallbackQuery, state: FSMContext, db: 
     await state.update_data(prompt_msg_id=call.message.message_id,
                             prompt_chat_id=call.message.chat.id,
                             pending_value=None, original_value=current)
-    banner = await db.get_setting("banner_file_id")
     await show(call, _community_edit_text(current),
-               reply_markup=setting_edit_kb("clear_community", "settings_menu"), banner=banner or "")
+               reply_markup=setting_edit_kb("clear_community", "settings_menu"), db=db)
     await call.answer()
 
 
@@ -263,9 +252,8 @@ async def cb_clear_community(call: CallbackQuery, state: FSMContext, db: Databas
         return await call.answer("⛔")
     await db.set_setting("community_url", "")
     await state.clear()
-    banner = await db.get_setting("banner_file_id")
     await show(call, f"✅ Сообщество очищено\n\n{_settings_header()}",
-               reply_markup=settings_kb(), banner=banner or "")
+               reply_markup=settings_kb(), db=db)
     await call.answer()
 
 
@@ -277,9 +265,8 @@ async def cb_accept_community(call: CallbackQuery, state: FSMContext, db: Databa
     val = data.get("pending_value") or ""
     await db.set_setting("community_url", val)
     await state.clear()
-    banner = await db.get_setting("banner_file_id")
     await show(call, f"✅ Сообщество: <b>{val}</b>\n\n{_settings_header()}",
-               reply_markup=settings_kb(), banner=banner or "")
+               reply_markup=settings_kb(), db=db)
     await call.answer()
 
 
@@ -298,12 +285,11 @@ async def on_community_url_input(message: Message, state: FSMContext, db: Databa
     chat_id = data.get("prompt_chat_id") or message.chat.id
     text = _community_edit_text(raw)
     kb = setting_edit_pending_kb("accept_community", "clear_community", "settings_menu")
-    banner = await db.get_setting("banner_file_id")
     if prompt_msg_id:
         from bot.banner import edit_prompt
-        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, banner=banner or "")
+        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, db=db)
         return
-    await show(message, text, reply_markup=kb, banner=banner or "")
+    await show(message, text, reply_markup=kb, db=db)
 
 
 # ── Брендирование ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -321,10 +307,9 @@ async def cb_branding_menu(call: CallbackQuery, state: FSMContext, db: Database)
     await state.clear()
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
-    banner = await db.get_setting("banner_file_id")
     kb = branding_kb(has_banner=bool(banner))
     text = "🎨 <b>Брендирование</b>\n\nВыберите нужный пункт"
-    await show(call, text, reply_markup=kb, banner=banner or "")
+    await show(call, text, reply_markup=kb, db=db)
     await call.answer()
 
 
@@ -340,10 +325,9 @@ async def cb_branding_change_banner(call: CallbackQuery, state: FSMContext, db: 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отмена", callback_data="branding_menu", style="danger")],
     ])
-    banner = await db.get_setting("banner_file_id")
     await show(call, "🖼 <b>Загрузка банера</b>\n\n"
                "Отправьте изображение (JPG или PNG), которое станет банером.",
-               reply_markup=kb, banner=banner or "")
+               reply_markup=kb, db=db)
     await call.answer()
 
 

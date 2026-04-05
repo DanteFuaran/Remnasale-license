@@ -51,8 +51,7 @@ def _backup_caption(raw: bytes, manual: bool = True) -> str:
 async def cb_backup_menu(call: CallbackQuery, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
-    banner = await db.get_setting("banner_file_id")
-    await show(call, "💾 <b>Управление БД</b>", reply_markup=backup_kb(), banner=banner or "")
+    await show(call, "💾 <b>Управление БД</b>", reply_markup=backup_kb(), db=db)
     await call.answer()
 
 
@@ -87,8 +86,7 @@ async def cb_backup_load(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await state.set_state("backup_upload")
-    banner = await db.get_setting("banner_file_id")
-    await show(call, "📤 Отправьте JSON-файл бэкапа:", banner=banner or "")
+    await show(call, "📤 Отправьте JSON-файл бэкапа:", db=db)
     await call.answer()
 
 
@@ -192,9 +190,8 @@ async def cb_autobackup_menu(call: CallbackQuery, state: FSMContext, db: Databas
         "autobackup_chat_id": settings["chat_id"],
         "autobackup_frequency": settings["frequency"],
     })
-    banner = await db.get_setting("banner_file_id")
     await show(call, _autobackup_header(settings),
-               reply_markup=autobackup_settings_kb(settings), banner=banner or "")
+               reply_markup=autobackup_settings_kb(settings), db=db)
     await call.answer()
 
 
@@ -214,8 +211,7 @@ async def cb_autobackup_cancel(call: CallbackQuery, state: FSMContext, db: Datab
         for key, val in snapshot.items():
             await db.set_setting(key, val)
     await state.clear()
-    banner = await db.get_setting("banner_file_id")
-    await show(call, "💾 <b>Управление БД</b>", reply_markup=backup_kb(), banner=banner or "")
+    await show(call, "💾 <b>Управление БД</b>", reply_markup=backup_kb(), db=db)
     await call.answer()
 
 
@@ -225,8 +221,7 @@ async def cb_autobackup_accept(call: CallbackQuery, state: FSMContext, db: Datab
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await state.clear()
-    banner = await db.get_setting("banner_file_id")
-    await show(call, "💾 <b>Управление БД</b>", reply_markup=backup_kb(), banner=banner or "")
+    await show(call, "💾 <b>Управление БД</b>", reply_markup=backup_kb(), db=db)
     await call.answer()
 
 
@@ -243,9 +238,8 @@ async def cb_autobackup_toggle(call: CallbackQuery, state: FSMContext, db: Datab
     new_val = "0" if settings["enabled"] == "1" else "1"
     await db.set_setting("autobackup_enabled", new_val)
     settings["enabled"] = new_val
-    banner = await db.get_setting("banner_file_id")
     await show(call, _autobackup_header(settings),
-               reply_markup=autobackup_settings_kb(settings), banner=banner or "")
+               reply_markup=autobackup_settings_kb(settings), db=db)
     await call.answer()
 
 
@@ -257,9 +251,8 @@ async def cb_autobackup_silent(call: CallbackQuery, db: Database):
     new_val = "0" if settings["silent_mode"] == "1" else "1"
     await db.set_setting("autobackup_silent_mode", new_val)
     settings["silent_mode"] = new_val
-    banner = await db.get_setting("banner_file_id")
     await show(call, _autobackup_header(settings),
-               reply_markup=autobackup_settings_kb(settings), banner=banner or "")
+               reply_markup=autobackup_settings_kb(settings), db=db)
     await call.answer()
 
 
@@ -269,12 +262,11 @@ async def cb_autobackup_set_token(call: CallbackQuery, state: FSMContext, db: Da
         return await call.answer("⛔")
     await state.set_state(AutoBackupTokenState.waiting_token)
     await state.update_data(prompt_msg_id=call.message.message_id, prompt_chat_id=call.message.chat.id)
-    banner = await db.get_setting("banner_file_id")
     await show(call, "🤖 <b>Токен бота для бэкапов</b>\n\n"
                "Введите токен бота, через который будут отправляться бэкапы:",
                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                    [InlineKeyboardButton(text="❌ Отмена", callback_data="autobackup_menu", style="danger")],
-               ]), banner=banner or "")
+               ]), db=db)
     await call.answer()
 
 
@@ -295,12 +287,11 @@ async def on_autobackup_token(message: Message, state: FSMContext, db: Database)
     kb = autobackup_settings_kb(settings)
     prompt_msg_id = data.get("prompt_msg_id")
     chat_id = data.get("prompt_chat_id") or message.chat.id
-    banner = await db.get_setting("banner_file_id")
     if prompt_msg_id:
         from bot.banner import edit_prompt
-        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, banner=banner or "")
+        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, db=db)
         return
-    await show(message, text, reply_markup=kb, banner=banner or "")
+    await show(message, text, reply_markup=kb, db=db)
 
 
 @router.callback_query(F.data == "autobackup_set_chat")
@@ -309,12 +300,11 @@ async def cb_autobackup_set_chat(call: CallbackQuery, state: FSMContext, db: Dat
         return await call.answer("⛔")
     await state.set_state(AutoBackupChatIdState.waiting_chat_id)
     await state.update_data(prompt_msg_id=call.message.message_id, prompt_chat_id=call.message.chat.id)
-    banner = await db.get_setting("banner_file_id")
     await show(call, "👤 <b>Получатель бэкапов</b>\n\n"
                "Введите Telegram ID получателя бэкапов:",
                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                    [InlineKeyboardButton(text="❌ Отмена", callback_data="autobackup_menu", style="danger")],
-               ]), banner=banner or "")
+               ]), db=db)
     await call.answer()
 
 
@@ -335,21 +325,19 @@ async def on_autobackup_chat_id(message: Message, state: FSMContext, db: Databas
     kb = autobackup_settings_kb(settings)
     prompt_msg_id = data.get("prompt_msg_id")
     chat_id = data.get("prompt_chat_id") or message.chat.id
-    banner = await db.get_setting("banner_file_id")
     if prompt_msg_id:
         from bot.banner import edit_prompt
-        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, banner=banner or "")
+        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, db=db)
         return
-    await show(message, text, reply_markup=kb, banner=banner or "")
+    await show(message, text, reply_markup=kb, db=db)
 
 
 @router.callback_query(F.data == "autobackup_set_freq")
 async def cb_autobackup_set_freq(call: CallbackQuery, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
-    banner = await db.get_setting("banner_file_id")
     await show(call, "🕐 <b>Частота автобэкапа</b>\n\nВыберите периодичность:",
-               reply_markup=autobackup_freq_kb(), banner=banner or "")
+               reply_markup=autobackup_freq_kb(), db=db)
     await call.answer()
 
 
@@ -360,9 +348,8 @@ async def cb_autobackup_freq_select(call: CallbackQuery, db: Database):
     freq = call.data.split(":")[1]
     await db.set_setting("autobackup_frequency", freq)
     settings = await _get_autobackup_settings(db)
-    banner = await db.get_setting("banner_file_id")
     await show(call, _autobackup_header(settings),
-               reply_markup=autobackup_settings_kb(settings), banner=banner or "")
+               reply_markup=autobackup_settings_kb(settings), db=db)
     await call.answer()
 
 
@@ -384,10 +371,9 @@ async def cb_autobackup_force(call: CallbackQuery, db: Database):
         asyncio.create_task(_auto_delete(call.bot, call.message.chat.id, note.message_id))
     # Обновляем меню
     settings = await _get_autobackup_settings(db)
-    banner = await db.get_setting("banner_file_id")
     try:
         await show(call, _autobackup_header(settings),
-                   reply_markup=autobackup_settings_kb(settings), banner=banner or "")
+                   reply_markup=autobackup_settings_kb(settings), db=db)
     except Exception:
         pass
 

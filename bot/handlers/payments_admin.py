@@ -61,8 +61,7 @@ async def cb_settings_payments(call: CallbackQuery, state: FSMContext, db: Datab
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     gateways = await db.get_all_gateways()
-    banner = await db.get_setting("banner_file_id")
-    await show(call, "💳 <b>Платёжные системы</b>", reply_markup=payments_kb(gateways), banner=banner or "")
+    await show(call, "💳 <b>Платёжные системы</b>", reply_markup=payments_kb(gateways), db=db)
     await call.answer()
 
 
@@ -79,9 +78,8 @@ async def cb_gateway_detail(call: CallbackQuery, db: Database):
     if not meta.get("fields"):
         await _notify(call, "ℹ️ Шлюз не требует настройки")
         return
-    banner = await db.get_setting("banner_file_id")
     await show(call, _format_gateway_detail_text(gw, meta),
-               reply_markup=gateway_detail_kb(gw, PUBLIC_URL), banner=banner or "")
+               reply_markup=gateway_detail_kb(gw, PUBLIC_URL), db=db)
     await call.answer()
 async def cb_gateway_test(call: CallbackQuery, db: Database):
     if not _is_admin(call.from_user.id):
@@ -115,8 +113,7 @@ async def cb_gateway_toggle(call: CallbackQuery, db: Database):
         return
     status = "🟢 Включён" if gw["is_active"] else "🔴 Выключен"
     gateways = await db.get_all_gateways()
-    banner = await db.get_setting("banner_file_id")
-    await show(call, "💳 <b>Платёжные системы</b>", reply_markup=payments_kb(gateways), banner=banner or "")
+    await show(call, "💳 <b>Платёжные системы</b>", reply_markup=payments_kb(gateways), db=db)
     await call.answer(status)
 
 
@@ -134,7 +131,6 @@ async def cb_gateway_field(call: CallbackQuery, state: FSMContext, db: Database)
                             prompt_chat_id=call.message.chat.id)
     gw = await db.get_gateway(gtype)
     current = (gw.get("settings", {}).get(field, "") if gw else "") or "Не указан"
-    banner = await db.get_setting("banner_file_id")
     await show(call, f"✏️ <b>{field_label}</b>\n\n"
                f"<blockquote>{current}</blockquote>\n\n"
                f"ℹ️ <i>Введите новое значение:</i>",
@@ -144,7 +140,7 @@ async def cb_gateway_field(call: CallbackQuery, state: FSMContext, db: Database)
                        InlineKeyboardButton(text="❌ Отмена", callback_data=f"gw:{gtype}", style="danger"),
                        InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
                    ],
-               ]), banner=banner or "")
+               ]), db=db)
     await call.answer()
 
 
@@ -158,9 +154,8 @@ async def cb_gateway_field_clear(call: CallbackQuery, state: FSMContext, db: Dat
     await state.clear()
     gw = await db.get_gateway(gtype)
     meta = GATEWAY_TYPES.get(gtype, {})
-    banner = await db.get_setting("banner_file_id")
     await show(call, _format_gateway_detail_text(gw, meta),
-               reply_markup=gateway_detail_kb(gw, PUBLIC_URL), banner=banner or "")
+               reply_markup=gateway_detail_kb(gw, PUBLIC_URL), db=db)
     await call.answer("🗑 Очищено")
 
 
@@ -184,12 +179,11 @@ async def on_gateway_field_input(message: Message, state: FSMContext, db: Databa
     meta = GATEWAY_TYPES.get(gtype, {})
     text = f"✅ Сохранено\n\n{_format_gateway_detail_text(gw, meta)}"
     kb = gateway_detail_kb(gw, PUBLIC_URL)
-    banner = await db.get_setting("banner_file_id")
     if prompt_msg_id:
         from bot.banner import edit_prompt
-        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, banner=banner or "")
+        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, db=db)
         return
-    await show(message, text, reply_markup=kb, banner=banner or "")
+    await show(message, text, reply_markup=kb, db=db)
 
 
 # ── Позиционирование шлюзов ───────────────────────────────────────────────────
@@ -200,10 +194,9 @@ async def cb_gw_placement(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     gateways = await db.get_all_gateways()
-    banner = await db.get_setting("banner_file_id")
     await show(call, "🔢 <b>Позиционирование платёжных систем</b>\n\n"
                "Измените порядок отображения шлюзов:",
-               reply_markup=gateway_placement_kb(gateways), banner=banner or "")
+               reply_markup=gateway_placement_kb(gateways), db=db)
     await call.answer()
 
 
@@ -252,9 +245,8 @@ async def cb_gw_currency(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     current = await db.get_setting("payment_currency") or "RUB"
-    banner = await db.get_setting("banner_file_id")
     await show(call, "💸 <b>Валюта по умолчанию</b>\n\nВыберите валюту:",
-               reply_markup=gateway_currency_kb(current), banner=banner or "")
+               reply_markup=gateway_currency_kb(current), db=db)
     await call.answer()
 
 

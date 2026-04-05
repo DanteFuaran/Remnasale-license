@@ -117,8 +117,7 @@ async def cb_purchase_start(call: CallbackQuery, state: FSMContext, db: Database
     await state.clear()
     await state.set_state(PurchaseState.selecting_products)
     await state.update_data(selected_products=[])
-    banner = await db.get_setting("banner_file_id")
-    await show(call, _SELECTION_TEXT, reply_markup=product_selection_kb(set()), banner=banner or "")
+    await show(call, _SELECTION_TEXT, reply_markup=product_selection_kb(set()), db=db)
     await call.answer()
 
 
@@ -128,10 +127,9 @@ async def cb_purchase_cancel(call: CallbackQuery, state: FSMContext, db: Databas
     await state.clear()
     support = await db.get_setting("support_url")
     community = await db.get_setting("community_url")
-    banner = await db.get_setting("banner_file_id")
     await show(call, "🏠 <b>Главное меню</b>",
                reply_markup=user_main_menu_kb(support, community, is_admin=_is_admin(call.from_user.id)),
-               banner=banner or "")
+               db=db)
     await call.answer()
 
 
@@ -141,8 +139,7 @@ async def cb_purchase_back_products(call: CallbackQuery, state: FSMContext, db: 
     data = await state.get_data()
     selected = set(data.get("selected_products", []))
     await state.set_state(PurchaseState.selecting_products)
-    banner = await db.get_setting("banner_file_id")
-    await show(call, _SELECTION_TEXT, reply_markup=product_selection_kb(selected), banner=banner or "")
+    await show(call, _SELECTION_TEXT, reply_markup=product_selection_kb(selected), db=db)
     await call.answer()
 
 
@@ -153,8 +150,7 @@ async def cb_purchase_back_to_dur(call: CallbackQuery, state: FSMContext, db: Da
     data = await state.get_data()
     selected = set(data.get("selected_products", []))
     await state.set_state(PurchaseState.selecting_duration)
-    banner = await db.get_setting("banner_file_id")
-    await show(call, _duration_text(selected), reply_markup=purchase_duration_kb(), banner=banner or "")
+    await show(call, _duration_text(selected), reply_markup=purchase_duration_kb(), db=db)
     await call.answer()
 
 
@@ -177,8 +173,7 @@ async def cb_product_toggle(call: CallbackQuery, state: FSMContext, db: Database
         selected.add(product_key)
 
     await state.update_data(selected_products=list(selected))
-    banner = await db.get_setting("banner_file_id")
-    await show(call, _SELECTION_TEXT, reply_markup=product_selection_kb(selected), banner=banner or "")
+    await show(call, _SELECTION_TEXT, reply_markup=product_selection_kb(selected), db=db)
     await call.answer()
 
 
@@ -194,8 +189,7 @@ async def cb_purchase_next_duration(call: CallbackQuery, state: FSMContext, db: 
         return
 
     await state.set_state(PurchaseState.selecting_duration)
-    banner = await db.get_setting("banner_file_id")
-    await show(call, _duration_text(selected), reply_markup=purchase_duration_kb(), banner=banner or "")
+    await show(call, _duration_text(selected), reply_markup=purchase_duration_kb(), db=db)
     await call.answer()
 
 
@@ -241,8 +235,7 @@ async def cb_purchase_duration(call: CallbackQuery, state: FSMContext, db: Datab
         f"💳 К оплате: <b>{_format_price(total)} ₽</b>\n\n"
         f"Выберите способ оплаты:"
     )
-    banner = await db.get_setting("banner_file_id")
-    await show(call, text, reply_markup=payment_method_kb(gateways), banner=banner or "")
+    await show(call, text, reply_markup=payment_method_kb(gateways), db=db)
     await call.answer()
 
 
@@ -330,8 +323,7 @@ async def _create_yoomoney_payment(
         f"🆔 Заказ: <code>{order_id[:8]}</code>\n\n"
         f"Нажмите кнопку ниже для оплаты:"
     )
-    banner = await db.get_setting("banner_file_id")
-    await show(call, text, reply_markup=payment_link_kb(payment_url, order_id), banner=banner or "")
+    await show(call, text, reply_markup=payment_link_kb(payment_url, order_id), db=db)
     await call.answer()
 
 
@@ -385,8 +377,7 @@ async def _create_heleket_payment(
                             f"🆔 Заказ: <code>{order_id[:8]}</code>\n\n"
                             f"Нажмите кнопку ниже для оплаты:"
                         )
-                        banner = await db.get_setting("banner_file_id")
-                        await show(call, text, reply_markup=payment_link_kb(payment_url, order_id), banner=banner or "")
+                        await show(call, text, reply_markup=payment_link_kb(payment_url, order_id), db=db)
                         await call.answer()
                         return
                 logger.error(f"[heleket] Create payment failed: {resp.status} {resp_data}")
@@ -432,8 +423,7 @@ async def _create_stars_payment(
             [InlineKeyboardButton(text="⬅️ Назад",  callback_data="purchase_back_to_dur", style="primary")],
             [InlineKeyboardButton(text="❌ Отмена", callback_data="purchase_cancel", style="danger")],
         ])
-        banner = await db.get_setting("banner_file_id")
-        await show(call, text, reply_markup=kb, banner=banner or "")
+        await show(call, text, reply_markup=kb, db=db)
         await call.answer()
     except Exception as e:
         logger.error(f"[stars] Create invoice error: {e}")
@@ -503,8 +493,7 @@ async def on_successful_payment(message: Message, state: FSMContext, db: Databas
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary")],
     ])
-    banner = await db.get_setting("banner_file_id")
-    await show(message, text, reply_markup=kb, banner=banner or "")
+    await show(message, text, reply_markup=kb, db=db)
 
     # Уведомляем админа
     try:
@@ -551,6 +540,5 @@ async def _deliver_key(call: CallbackQuery, state: FSMContext, db: Database, ord
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary")],
     ])
-    banner = await db.get_setting("banner_file_id")
-    await show(call, text, reply_markup=kb, banner=banner or "")
+    await show(call, text, reply_markup=kb, db=db)
     await call.answer()
