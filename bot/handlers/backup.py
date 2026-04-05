@@ -111,10 +111,8 @@ async def backup_load(message: Message, state: FSMContext, db: Database):
         return await message.answer(f"❌ Ошибка импорта: {e}")
     await state.clear()
     servers = await db.get_all_servers()
-    await message.answer(
-        f"✅ Бэкап восстановлен\n\n{clients_header(len(servers))}",
-        reply_markup=clients_kb(servers),
-    )
+    await show(message, f"✅ Бэкап восстановлен\n\n{clients_header(len(servers))}",
+               reply_markup=clients_kb(servers), db=db)
 
 
 # ── Автобэкап ────────────────────────────────────────────────────────────────

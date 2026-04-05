@@ -187,7 +187,7 @@ async def on_server_name(message: Message, state: FSMContext, db: Database):
         await edit_prompt(message.bot, chat_id, prompt_msg_id,
                           "📅 Укажите длительность:", reply_markup=add_period_kb(), db=db)
         return
-    await message.answer("🗓 Укажите длительность:", reply_markup=add_period_kb())
+    await show(message, "📅 Укажите длительность:", reply_markup=add_period_kb(), db=db)
 
 
 @router.callback_query(F.data.startswith("ap:"))

@@ -26,6 +26,10 @@ async def show(
         banner = await db.get_setting("banner_file_id") or ""
     if isinstance(target, CallbackQuery):
         msg = target.message
+        # Если баннер не задан явно/через db, но текущее сообщение уже фото —
+        # берём его file_id чтобы не потерять баннер при навигации
+        if not banner and msg.photo:
+            banner = msg.photo[-1].file_id
         if banner:
             try:
                 media = InputMediaPhoto(media=banner, caption=text, parse_mode="HTML")
@@ -43,8 +47,6 @@ async def show(
             )
         else:
             try:
-                if msg.photo:
-                    raise Exception("type mismatch")
                 await msg.edit_text(text, reply_markup=reply_markup)
                 return msg
             except Exception:
