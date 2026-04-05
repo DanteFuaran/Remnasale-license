@@ -262,9 +262,14 @@ do_update() {
 
     # Обновляем файлы (кроме .env и data/)
     (
-        for f in api.py bot config.py database.py main.py requirements.txt Dockerfile docker-compose.yml version; do
-            [ -e "$TMP_DIR/$f" ] && cp -rf "$TMP_DIR/$f" "$COMPOSE_DIR/$f" 2>/dev/null || true
+        for f in api.py config.py database.py main.py requirements.txt Dockerfile docker-compose.yml version default_banner.jpg install.sh; do
+            [ -e "$TMP_DIR/$f" ] && cp -f "$TMP_DIR/$f" "$COMPOSE_DIR/$f" 2>/dev/null || true
         done
+        # Директория bot/ — удаляем старую и копируем новую целиком
+        if [ -d "$TMP_DIR/bot" ]; then
+            rm -rf "$COMPOSE_DIR/bot"
+            cp -rf "$TMP_DIR/bot" "$COMPOSE_DIR/bot"
+        fi
         # Обновляем rl.sh и устанавливаем в /usr/local/bin
         if [ -f "$TMP_DIR/rl.sh" ]; then
             cp -f "$TMP_DIR/rl.sh" "$COMPOSE_DIR/rl.sh"
