@@ -227,23 +227,21 @@ API_PORT="8080"
 echo -e "${BLUE}══════════════════════════════════════${NC}"
 echo
 
-# ── Клонирование / обновление репозитория ──────────────────
-if [[ -d "$INSTALL_DIR/.git" ]]; then
-    printf "${GREEN}▶${NC}  Обновление существующей установки...\n"
-    _run_spinner "Обновление репозитория" env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="" git -c credential.helper="" -C "$INSTALL_DIR" pull origin main
-    if [[ $? -ne 0 ]]; then
-        echo -e "${RED}✖  Ошибка обновления репозитория.${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}✔${NC}  Репозиторий обновлён."
-else
-    _run_spinner "Клонирование license-сервера" env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="" git -c credential.helper="" clone "$REPO_URL" "$INSTALL_DIR"
-    if [[ $? -ne 0 ]]; then
-        echo -e "${RED}✖  Ошибка клонирования. Проверьте интернет-соединение.${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}✔${NC}  Репозиторий клонирован."
+# ── Очистка существующей установки ─────────────────────────
+if [[ -d "$INSTALL_DIR" ]]; then
+    printf "${GREEN}▶${NC}  Остановка и удаление предыдущей установки...\n"
+    docker compose -f "$INSTALL_DIR/docker-compose.yml" down --volumes 2>/dev/null || true
+    rm -rf "$INSTALL_DIR"
+    echo -e "${GREEN}✔${NC}  Предыдущая установка удалена."
 fi
+
+# ── Клонирование репозитория ────────────────────────────────
+_run_spinner "Клонирование license-сервера" env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="" git -c credential.helper="" clone "$REPO_URL" "$INSTALL_DIR"
+if [[ $? -ne 0 ]]; then
+    echo -e "${RED}✖  Ошибка клонирования. Проверьте интернет-соединение.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✔${NC}  Репозиторий клонирован."
 
 # ── Создание .env ───────────────────────────────────────────
 mkdir -p "$INSTALL_DIR/data"
