@@ -31,6 +31,7 @@ def clients_kb(servers: list[dict]) -> InlineKeyboardMarkup:
         ]
         buttons.append(row)
     buttons.append([InlineKeyboardButton(text="➕ Добавить сервер", callback_data="add")])
+    buttons.append([InlineKeyboardButton(text="📢 Написать всем", callback_data="broadcast")])
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel", style="primary")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

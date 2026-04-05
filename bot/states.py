@@ -31,6 +31,11 @@ class SendMessageState(StatesGroup):
     waiting_text = State()
 
 
+class BroadcastState(StatesGroup):
+    composing = State()
+    waiting_text = State()
+
+
 class QuickReplyState(StatesGroup):
     waiting_text = State()
 
