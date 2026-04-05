@@ -253,15 +253,121 @@ API_PORT=${API_PORT}
 DATABASE_PATH=/data/license.db
 GITHUB_PAT=${GITHUB_PAT}
 GITHUB_REPO=DanteFuaran/Remnasale
+PUBLIC_URL=https://${LICENSE_DOMAIN}
 EOF
 echo -e "${GREEN}✔${NC}  Файл .env создан."
 echo
 
-# ── Открытие порта в ufw ────────────────────────────────────
+# ── Установка nginx + SSL ──────────────────────────────────
+_setup_nginx() {
+    local domain="$1"
+    local upstream_port="9777"
+
+    # Устанавливаем nginx если нет
+    if ! command -v nginx &>/dev/null; then
+        printf "${GREEN}▶${NC}  Установка nginx...\n"
+        apt-get update -qq >/dev/null 2>&1
+        apt-get install -y -qq nginx >/dev/null 2>&1
+        systemctl enable nginx >/dev/null 2>&1
+        echo -e "${GREEN}✔${NC}  Nginx установлен."
+    else
+        echo -e "${GREEN}✔${NC}  Nginx уже установлен."
+    fi
+
+    # Устанавливаем certbot если нет
+    if ! command -v certbot &>/dev/null; then
+        printf "${GREEN}▶${NC}  Установка certbot...\n"
+        apt-get install -y -qq certbot python3-certbot-nginx >/dev/null 2>&1
+        echo -e "${GREEN}✔${NC}  Certbot установлен."
+    fi
+
+    local NGINX_CONF="/etc/nginx/sites-available/${domain}"
+    local NGINX_LINK="/etc/nginx/sites-enabled/${domain}"
+
+    # Создаём конфиг nginx (HTTP для получения сертификата)
+    cat > "$NGINX_CONF" <<NGINX_EOF
+server {
+    listen 80;
+    server_name ${domain};
+
+    location / {
+        proxy_pass http://127.0.0.1:${upstream_port};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300;
+        proxy_send_timeout 300;
+    }
+}
+NGINX_EOF
+
+    # Активируем конфиг
+    ln -sf "$NGINX_CONF" "$NGINX_LINK" 2>/dev/null
+    # Удаляем default если мешает
+    rm -f /etc/nginx/sites-enabled/default 2>/dev/null
+
+    # Проверяем и перезапускаем nginx
+    nginx -t >/dev/null 2>&1 && systemctl restart nginx >/dev/null 2>&1
+
+    # Получаем/обновляем SSL сертификат
+    if [[ -d "/etc/letsencrypt/live/${domain}" ]]; then
+        echo -e "${GREEN}✔${NC}  SSL сертификат уже существует."
+    else
+        printf "${GREEN}▶${NC}  Получение SSL сертификата...\n"
+        certbot --nginx -d "${domain}" --non-interactive --agree-tos --register-unsafely-without-email >/dev/null 2>&1
+        if [[ $? -ne 0 ]]; then
+            echo -e "${YELLOW}⚠  Не удалось получить SSL сертификат. Проверьте DNS для ${domain}.${NC}"
+            return
+        fi
+        echo -e "${GREEN}✔${NC}  SSL сертификат получен."
+    fi
+
+    # Обновляем конфиг для HTTPS
+    cat > "$NGINX_CONF" <<NGINX_EOF
+server {
+    listen 80;
+    server_name ${domain};
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name ${domain};
+
+    ssl_certificate /etc/letsencrypt/live/${domain}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${domain}/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    client_max_body_size 50M;
+
+    location / {
+        proxy_pass http://127.0.0.1:${upstream_port};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300;
+        proxy_send_timeout 300;
+    }
+}
+NGINX_EOF
+
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1
+    echo -e "${GREEN}✔${NC}  Nginx настроен для ${YELLOW}${domain}${NC}."
+}
+
+_setup_nginx "$LICENSE_DOMAIN"
+echo
+
+# ── Открытие портов в ufw ──────────────────────────────────
 if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
-    ufw allow 9777/tcp >/dev/null 2>&1 || true
+    ufw allow 80/tcp >/dev/null 2>&1 || true
+    ufw allow 443/tcp >/dev/null 2>&1 || true
     ufw reload >/dev/null 2>&1 || true
-    echo -e "${GREEN}✔${NC}  Порт ${YELLOW}9777${NC} открыт в ufw."
+    echo -e "${GREEN}✔${NC}  Порты ${YELLOW}80, 443${NC} открыты в ufw."
 fi
 
 # ── Сборка и запуск контейнеров ────────────────────────────
