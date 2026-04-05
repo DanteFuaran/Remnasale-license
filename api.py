@@ -27,7 +27,7 @@ async def _fetch_github_version() -> str:
         logger.warning("[version] GITHUB_PAT or GITHUB_REPO not configured")
         return _cached_version or "unknown"
 
-    url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{_GITHUB_BRANCH}/version"
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/version?ref={_GITHUB_BRANCH}"
     headers = {
         "Authorization": f"token {GITHUB_PAT}",
         "Accept": "application/vnd.github.v3.raw",
@@ -180,7 +180,7 @@ async def handle_install_script(request: web.Request) -> web.Response:
     if not GITHUB_PAT or not GITHUB_REPO:
         return web.json_response({"error": "not configured"}, status=503)
 
-    url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{_GITHUB_BRANCH}/remnasale-install.sh"
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/remnasale-install.sh?ref={_GITHUB_BRANCH}"
     headers = {
         "Authorization": f"token {GITHUB_PAT}",
         "Accept": "application/vnd.github.v3.raw",
