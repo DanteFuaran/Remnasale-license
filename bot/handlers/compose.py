@@ -4,7 +4,7 @@ from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 
-from config import BOT_ADMIN_ID
+from config import BOT_ADMIN_ID, BOT_TOKEN
 from database import Database
 from bot.banner import show
 from bot.formatting import format_server
@@ -79,15 +79,16 @@ async def cb_compose_menu(call: CallbackQuery, state: FSMContext, db: Database):
 
 
 @router.callback_query(F.data.startswith("cmt:"))
-async def cb_compose_enter_text(call: CallbackQuery, state: FSMContext):
+async def cb_compose_enter_text(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     server_id = int(call.data.split(":")[1])
     await state.set_state(SendMessageState.waiting_text)
+    banner = await db.get_setting("banner_file_id")
     sent = await show(call, "📝 Введите текст сообщения:",
                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                           [InlineKeyboardButton(text="❌ Отмена", callback_data=f"msg:{server_id}", style="danger")]
-                      ]))
+                      ]), banner=banner or "")
     await state.update_data(prompt_msg_id=sent.message_id,
                             prompt_chat_id=sent.chat.id)
     await call.answer()
@@ -191,6 +192,14 @@ async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
             f"{compose_text}"
         )
         banner_file_id = await db.get_setting("banner_file_id") or ""
+        # file_id принадлежит нашему боту — получаем публичный URL для отправки клиентским ботом
+        banner_url = ""
+        if banner_file_id:
+            try:
+                f = await call.bot.get_file(banner_file_id)
+                banner_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{f.file_path}"
+            except Exception:
+                banner_url = ""
         reply_markup_payload = {
             "inline_keyboard": [[
                 {"text": "✅ Закрыть", "callback_data": "license_warning_close"}
@@ -200,10 +209,10 @@ async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
         for tid in dev_ids:
             try:
                 async with ClientSession(timeout=ClientTimeout(total=10)) as session:
-                    if banner_file_id:
+                    if banner_url:
                         payload = {
                             "chat_id": int(tid),
-                            "photo": banner_file_id,
+                            "photo": banner_url,
                             "caption": msg_text,
                             "parse_mode": "HTML",
                             "reply_markup": reply_markup_payload,
@@ -220,8 +229,8 @@ async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
                     async with session.post(endpoint, json=payload) as resp:
                         if resp.status == 200:
                             sent_ok += 1
-                        elif banner_file_id:
-                            # Фallback: баннер не принят — отправляем без фото
+                        elif banner_url:
+                            # Fallback: URL не принят — отправляем без фото
                             fallback = {
                                 "chat_id": int(tid),
                                 "text": msg_text,
