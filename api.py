@@ -75,6 +75,10 @@ async def handle_verify(request: web.Request) -> web.Response:
         offline_grace_days = await db.get_offline_grace_days()
         result["offline_grace_days"] = offline_grace_days
 
+    license_host = await db.get_setting("license_host")
+    if license_host:
+        result["license_host"] = license_host
+
     status = 200 if result["valid"] else 403
     return web.json_response(result, status=status)
 

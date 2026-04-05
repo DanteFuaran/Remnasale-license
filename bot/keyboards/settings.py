@@ -21,6 +21,7 @@ def setting_edit_pending_kb(accept_cb: str, clear_cb: str, back_cb: str) -> Inli
 def settings_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Настройка синхронизации", callback_data="settings_sync")],
+        [InlineKeyboardButton(text="🌐 Домен лиц. сервера", callback_data="settings_license_host")],
         [
             InlineKeyboardButton(text="🆘 Помощь", callback_data="settings_support_url"),
             InlineKeyboardButton(text="👥 Сообщество", callback_data="settings_community_url"),

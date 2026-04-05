@@ -61,3 +61,7 @@ class AutoBackupTokenState(StatesGroup):
 
 class AutoBackupChatIdState(StatesGroup):
     waiting_chat_id = State()
+
+
+class SettingsLicenseHostState(StatesGroup):
+    waiting_host = State()

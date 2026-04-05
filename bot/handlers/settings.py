@@ -9,7 +9,7 @@ from bot.banner import show
 from bot.states import (
     SettingsIntervalState, SettingsOfflineGraceState,
     SettingsSupportUrlState, SettingsCommunityUrlState,
-    BrandingBannerState,
+    BrandingBannerState, SettingsLicenseHostState,
 )
 from bot.keyboards.settings import (
     settings_kb, sync_kb, setting_edit_kb, setting_edit_pending_kb, branding_kb,
@@ -292,7 +292,68 @@ async def on_community_url_input(message: Message, state: FSMContext, db: Databa
     await show(message, text, reply_markup=kb, db=db)
 
 
-# ── Брендирование ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Домен лиц. сервера ─────────────────────────────────────────────────────────
+
+def _license_host_text(current: str) -> str:
+    display = current or "Не указан (используется значение из .env клиентов)"
+    return (
+        "🌐 <b>Домен лиц. сервера</b>\n\n"
+        f"<blockquote>🌐 Текущий домен: {display}</blockquote>\n\n"
+        "ℹ️ <i>Введите новый домен (например <b>https://license.dfc-online.com</b>).\n"
+        "Клиентские боты получат его при следующей проверке лицензии и автоматически обновятся.</i>"
+    )
+
+
+@router.callback_query(F.data == "settings_license_host")
+async def cb_settings_license_host(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    current = await db.get_setting("license_host")
+    await state.set_state(SettingsLicenseHostState.waiting_host)
+    await state.update_data(prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
+    kb = setting_edit_kb("clear_license_host", "settings_menu")
+    await show(call, _license_host_text(current), reply_markup=kb, db=db)
+    await call.answer()
+
+
+@router.callback_query(F.data == "clear_license_host")
+async def cb_clear_license_host(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await db.set_setting("license_host", "")
+    await state.clear()
+    await show(call, f"✅ Домен лиц. сервера очищен\n\n{_settings_header()}",
+               reply_markup=settings_kb(), db=db)
+    await call.answer()
+
+
+@router.message(SettingsLicenseHostState.waiting_host)
+async def on_license_host_input(message: Message, state: FSMContext, db: Database):
+    if not _is_admin(message.from_user.id):
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    raw = message.text.strip().rstrip("/")
+    if not raw.startswith("http"):
+        raw = "https://" + raw
+    await db.set_setting("license_host", raw)
+    await state.clear()
+    data = await state.get_data()
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    text = f"✅ Домен лиц. сервера обновлён: <b>{raw}</b>\n\n{_settings_header()}"
+    if prompt_msg_id:
+        from bot.banner import edit_prompt
+        await edit_prompt(message.bot, chat_id, prompt_msg_id, text,
+                          reply_markup=settings_kb(), db=db)
+    else:
+        await show(message, text, reply_markup=settings_kb(), db=db)
+
+
+# ── Брендирование ─────────────────────────────────────────────────────────────
 
 async def _auto_delete_s(bot, chat_id: int, message_id: int, delay: int = 5):
     await asyncio.sleep(delay)
