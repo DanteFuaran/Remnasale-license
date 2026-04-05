@@ -55,7 +55,7 @@ async def cb_my_servers(call: CallbackQuery, state: FSMContext, db: Database):
         support = await db.get_setting("support_url")
         community = await db.get_setting("community_url")
         await show(call, format_user_server(server),
-                   reply_markup=user_server_kb(server, support, community), db=db)
+                   reply_markup=user_server_kb(server, support, community, back_callback="main"), db=db)
         return await call.answer()
     await show(call, "🖥 <b>Мои серверы:</b>",
                reply_markup=user_servers_kb(servers), db=db)
