@@ -491,6 +491,27 @@ class LicenseDB:
             gz.write(sql_text)
         return buf.getvalue()
 
+    async def import_sql_gz(self, raw: bytes) -> None:
+        """Восстанавливает базу из gzip SQL-дампа (формат export_sql_gz)."""
+        import io as _io
+        with gzip.GzipFile(fileobj=_io.BytesIO(raw)) as gz:
+            sql_text = gz.read().decode("utf-8")
+        bak = self.path + ".bak"
+        os.replace(self.path, bak)
+        try:
+            conn = sqlite3.connect(self.path)
+            conn.executescript(sql_text)
+            conn.close()
+        except Exception:
+            os.replace(bak, self.path)
+            raise
+        try:
+            os.remove(bak)
+        except Exception:
+            pass
+        # Применяем миграции — добавит новые колонки если бэкап со старой схемой
+        await self.init()
+
     async def import_backup(self, data: dict):
         servers = data.get("servers", [])
         settings = data.get("settings", {})

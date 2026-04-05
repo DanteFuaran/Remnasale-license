@@ -86,7 +86,19 @@ async def cb_backup_load(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     await state.set_state("backup_upload")
-    await show(call, "📤 Отправьте JSON-файл бэкапа:", db=db)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="backup_load_cancel", style="danger")]
+    ])
+    await show(call, "📤 Отправьте файл бэкапа (.sql.gz):", reply_markup=kb, db=db)
+    await call.answer()
+
+
+@router.callback_query(F.data == "backup_load_cancel")
+async def cb_backup_load_cancel(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await state.clear()
+    await show(call, "💾 <b>Управление БД</b>", reply_markup=backup_kb(), db=db)
     await call.answer()
 
 
@@ -96,19 +108,24 @@ async def backup_load(message: Message, state: FSMContext, db: Database):
     if current_state != "backup_upload":
         return
     doc: Document = message.document
-    if not doc.file_name.endswith(".json"):
-        return await message.answer("❌ Нужен JSON-файл.")
+    fname = doc.file_name or ""
     buf = io.BytesIO()
     await message.bot.download(doc, destination=buf)
-    buf.seek(0)
+    raw = buf.getvalue()
     try:
-        data = json.load(buf)
-    except Exception:
-        return await message.answer("❌ Ошибка чтения файла.")
-    try:
-        await db.import_backup(data)
+        if fname.endswith(".sql.gz") or fname.endswith(".gz"):
+            await db.import_sql_gz(raw)
+        elif fname.endswith(".json"):
+            data = json.loads(raw)
+            await db.import_backup(data)
+        else:
+            note = await message.answer("❌ Нужен файл бэкапа (.sql.gz)")
+            asyncio.create_task(_auto_delete(message.bot, message.chat.id, note.message_id))
+            return
     except Exception as e:
-        return await message.answer(f"❌ Ошибка импорта: {e}")
+        note = await message.answer(f"❌ Ошибка импорта: {e}")
+        asyncio.create_task(_auto_delete(message.bot, message.chat.id, note.message_id))
+        return
     await state.clear()
     servers = await db.get_all_servers()
     await show(message, f"✅ Бэкап восстановлен\n\n{clients_header(len(servers))}",
