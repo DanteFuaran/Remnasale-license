@@ -6,9 +6,10 @@ from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKe
 
 from config import BOT_ADMIN_ID
 from database import Database
+from aiogram.types import InputMediaPhoto
 from bot.banner import show
 from bot.formatting import format_server
-from bot.states import SendMessageState
+from bot.states import SendMessageState, QuickReplyState
 from bot.keyboards.admin import compose_kb, server_detail_kb
 
 router = Router()
@@ -160,6 +161,152 @@ async def cb_dismiss_client_msg(call: CallbackQuery):
     except Exception:
         pass
     await call.answer()
+
+
+# ── Быстрый ответ на сообщение клиента ────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("qreply:"))
+async def cb_quick_reply(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    server_id = int(call.data.split(":")[1])
+    server = await db.get_server(server_id)
+    if not server:
+        await _notify(call, "Сервер не найден")
+        return
+    await state.set_state(QuickReplyState.waiting_text)
+    await state.update_data(server_id=server_id,
+                            prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="qreply_cancel", style="danger")]
+    ])
+    msg = call.message
+    if msg.photo:
+        try:
+            media = InputMediaPhoto(media=msg.photo[-1].file_id,
+                                    caption="📝 Введите ответ клиенту:",
+                                    parse_mode="HTML")
+            await msg.edit_media(media=media, reply_markup=kb)
+        except Exception:
+            pass
+    else:
+        try:
+            await msg.edit_text("📝 Введите ответ клиенту:", reply_markup=kb)
+        except Exception:
+            pass
+    await call.answer()
+
+
+@router.callback_query(F.data == "qreply_cancel")
+async def cb_quick_reply_cancel(call: CallbackQuery, state: FSMContext):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await state.clear()
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    await call.answer()
+
+
+@router.message(QuickReplyState.waiting_text)
+async def on_quick_reply_text(message: Message, state: FSMContext, db: Database):
+    if not _is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    server_id = data.get("server_id")
+    prompt_msg_id = data.get("prompt_msg_id")
+    prompt_chat_id = data.get("prompt_chat_id") or message.chat.id
+    compose_text = message.text.strip() if message.text else ""
+    await state.clear()
+
+    if prompt_msg_id:
+        try:
+            await message.bot.delete_message(prompt_chat_id, prompt_msg_id)
+        except Exception:
+            pass
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    if not compose_text:
+        return
+
+    server = await db.get_server(server_id)
+    if not server:
+        note = await message.answer("❌ Сервер не найден")
+        asyncio.create_task(_auto_delete(message.bot, message.chat.id, note.message_id))
+        return
+
+    bot_token = server.get("bot_token", "") or ""
+    dev_ids_raw = server.get("dev_telegram_ids", "") or ""
+    dev_ids = [tid.strip() for tid in dev_ids_raw.split(",") if tid.strip()]
+    if not bot_token or not dev_ids:
+        note = await message.answer("❌ Нет данных бота клиента")
+        asyncio.create_task(_auto_delete(message.bot, message.chat.id, note.message_id))
+        return
+
+    msg_text = (
+        "📩 <b>Сообщение от администратора лицензий</b>\n\n"
+        f"{compose_text}"
+    )
+    banner_file_id = await db.get_setting("banner_file_id") or ""
+    banner_bytes = b""
+    if banner_file_id:
+        try:
+            buf = await message.bot.download(banner_file_id)
+            if buf:
+                banner_bytes = buf.getvalue()
+        except Exception:
+            banner_bytes = b""
+    reply_markup_json = (
+        '{"inline_keyboard":['
+        '[{"text":"✉️ Написать администратору","callback_data":"license_reply_admin"}],'
+        '[{"text":"✅ Закрыть","callback_data":"license_warning_close","style":"success"}]'
+        ']}'
+    )
+    sent_ok = 0
+    async with ClientSession(timeout=ClientTimeout(total=15)) as session:
+        for tid in dev_ids:
+            try:
+                if banner_bytes:
+                    from aiohttp import FormData
+                    form = FormData()
+                    form.add_field("chat_id", str(tid))
+                    form.add_field("caption", msg_text)
+                    form.add_field("parse_mode", "HTML")
+                    form.add_field("reply_markup", reply_markup_json)
+                    form.add_field("photo", banner_bytes,
+                                   filename="banner.jpg", content_type="image/jpeg")
+                    async with session.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                        data=form,
+                    ) as resp:
+                        if resp.status == 200:
+                            sent_ok += 1
+                            continue
+                payload = {
+                    "chat_id": int(tid),
+                    "text": msg_text,
+                    "parse_mode": "HTML",
+                    "reply_markup": {"inline_keyboard": [
+                        [{"text": "✉️ Написать администратору", "callback_data": "license_reply_admin"}],
+                        [{"text": "✅ Закрыть", "callback_data": "license_warning_close", "style": "success"}],
+                    ]},
+                }
+                async with session.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                    json=payload,
+                ) as resp:
+                    if resp.status == 200:
+                        sent_ok += 1
+            except Exception:
+                pass
+
+    note = await message.answer(f"✅ Ответ отправлен ({sent_ok}/{len(dev_ids)})")
+    asyncio.create_task(_auto_delete(message.bot, message.chat.id, note.message_id))
 
 
 @router.callback_query(F.data.startswith("cms:"))

@@ -31,6 +31,10 @@ class SendMessageState(StatesGroup):
     waiting_text = State()
 
 
+class QuickReplyState(StatesGroup):
+    waiting_text = State()
+
+
 class GatewayFieldState(StatesGroup):
     waiting_value = State()
 

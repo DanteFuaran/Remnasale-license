@@ -445,7 +445,7 @@ async def handle_client_message(request: web.Request) -> web.Response:
         f"{text}"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✉️ Написать сообщение", callback_data=f"msg:{sid}")],
+        [InlineKeyboardButton(text="✉️ Ответить", callback_data=f"qreply:{sid}")],
         [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_client_msg", style="success")],
     ])
 
