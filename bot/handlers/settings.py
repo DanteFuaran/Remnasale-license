@@ -307,6 +307,7 @@ async def cb_branding_menu(call: CallbackQuery, state: FSMContext, db: Database)
     await state.clear()
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
+    banner = await db.get_setting("banner_file_id") or ""
     kb = branding_kb(has_banner=bool(banner))
     text = "🎨 <b>Брендирование</b>\n\nВыберите нужный пункт"
     await show(call, text, reply_markup=kb, db=db)
