@@ -153,6 +153,15 @@ async def cb_dismiss_preview(call: CallbackQuery):
     await call.answer()
 
 
+@router.callback_query(F.data == "dismiss_client_msg")
+async def cb_dismiss_client_msg(call: CallbackQuery):
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    await call.answer()
+
+
 @router.callback_query(F.data.startswith("cms:"))
 async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
@@ -196,8 +205,10 @@ async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
             except Exception:
                 banner_bytes = b""
         reply_markup_json = (
-            '{"inline_keyboard":[[{"text":"\u2705 \u0417\u0430\u043a\u0440\u044b\u0442\u044c",'
-            '"callback_data":"license_warning_close"}]]}'
+            '{"inline_keyboard":['
+            '[{"text":"✉️ Написать администратору","callback_data":"license_reply_admin"}],'
+            '[{"text":"✅ Закрыть","callback_data":"license_warning_close","style":"success"}]'
+            ']}'
         )
         sent_ok = 0
         async with ClientSession(timeout=ClientTimeout(total=15)) as session:
@@ -224,9 +235,10 @@ async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
                         "chat_id": int(tid),
                         "text": msg_text,
                         "parse_mode": "HTML",
-                        "reply_markup": {"inline_keyboard": [[
-                            {"text": "✅ Закрыть", "callback_data": "license_warning_close"}
-                        ]]},
+                        "reply_markup": {"inline_keyboard": [
+                            [{"text": "✉️ Написать администратору", "callback_data": "license_reply_admin"}],
+                            [{"text": "✅ Закрыть", "callback_data": "license_warning_close", "style": "success"}],
+                        ]},
                     }
                     async with session.post(
                         f"https://api.telegram.org/bot{bot_token}/sendMessage",

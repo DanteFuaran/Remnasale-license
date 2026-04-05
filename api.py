@@ -403,10 +403,73 @@ async def handle_report(request: web.Request) -> web.Response:
     return web.json_response({"success": True})
 
 
+async def handle_client_message(request: web.Request) -> web.Response:
+    """Принимает сообщение от клиента и пересылает администратору."""
+    db = request.app["db"]
+    bot = request.app.get("bot")
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "reason": "invalid_body"}, status=400)
+
+    license_key = data.get("license_key", "").strip()
+    telegram_id = data.get("telegram_id", "")
+    name = data.get("name", "").strip()
+    username = data.get("username", "").strip()
+    text = data.get("text", "").strip()
+
+    if not license_key or not text:
+        return web.json_response({"success": False, "reason": "missing_fields"}, status=400)
+
+    server = await db.get_server_by_key(license_key)
+    if not server:
+        return web.json_response({"success": False, "reason": "not_found"}, status=404)
+
+    if server.get("is_muted"):
+        return web.json_response({"success": False, "reason": "muted"})
+
+    if not bot or not BOT_ADMIN_ID:
+        return web.json_response({"success": False, "reason": "bot_unavailable"}, status=503)
+
+    server_name = server.get("name", "???")
+    sid = server["id"]
+    user_link = f"@{username}" if username else ""
+    user_display = name or user_link or str(telegram_id)
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    msg_text = (
+        f"📨 <b>Сообщение от клиента</b>\n\n"
+        f"<blockquote>👤 Имя: {user_display}\n"
+        f"📱 Telegram ID: <code>{telegram_id}</code>\n"
+        f"🤖 Сервер: <b>{server_name}</b></blockquote>\n\n"
+        f"{text}"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✉️ Написать сообщение", callback_data=f"msg:{sid}")],
+        [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_client_msg", style="success")],
+    ])
+
+    try:
+        banner_file_id = await db.get_setting("banner_file_id") or ""
+        if banner_file_id:
+            await bot.send_photo(
+                BOT_ADMIN_ID, photo=banner_file_id,
+                caption=msg_text, reply_markup=kb,
+            )
+        else:
+            await bot.send_message(BOT_ADMIN_ID, msg_text, reply_markup=kb)
+    except Exception as e:
+        logger.warning(f"[client-message] Failed to send to admin: {e}")
+        return web.json_response({"success": False, "reason": "send_failed"}, status=500)
+
+    return web.json_response({"success": True})
+
+
 def setup_routes(app: web.Application):
     app.router.add_post("/api/v1/license/verify", handle_verify)
     app.router.add_post("/api/v1/license/release", handle_release)
     app.router.add_post("/api/v1/license/report", handle_report)
+    app.router.add_post("/api/v1/client-message", handle_client_message)
     app.router.add_post("/api/v1/notify/offline", handle_notify_offline)
     app.router.add_get("/api/v1/version", handle_version)
     app.router.add_get("/api/v1/download", handle_download)

@@ -85,6 +85,8 @@ class LicenseDB:
                 await db.execute("ALTER TABLE servers ADD COLUMN dev_telegram_ids TEXT DEFAULT ''")
             if "remnasale_version" not in columns:
                 await db.execute("ALTER TABLE servers ADD COLUMN remnasale_version TEXT DEFAULT ''")
+            if "is_muted" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN is_muted INTEGER DEFAULT 0")
 
             # Платёжные шлюзы
             await db.execute("""
@@ -282,6 +284,16 @@ class LicenseDB:
                 (bot_token, bot_username, dev_ids, remnasale_version, license_key),
             )
             await db.commit()
+
+    async def toggle_mute(self, server_id: int) -> Optional[dict]:
+        server = await self.get_server(server_id)
+        if not server:
+            return None
+        new_muted = 0 if server.get("is_muted") else 1
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE servers SET is_muted = ? WHERE id = ?", (new_muted, server_id))
+            await db.commit()
+        return await self.get_server(server_id)
 
     async def verify_license(self, key: str, server_ip: str) -> dict:
         server = await self.get_server_by_key(key)
