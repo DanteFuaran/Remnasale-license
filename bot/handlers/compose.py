@@ -117,7 +117,10 @@ async def on_compose_text(message: Message, state: FSMContext, db: Database):
                                                  message_id=prompt_msg_id, reply_markup=kb)
             return
         except Exception:
-            pass
+            try:
+                await message.bot.delete_message(chat_id, prompt_msg_id)
+            except Exception:
+                pass
     await message.answer(text, reply_markup=kb)
 
 
