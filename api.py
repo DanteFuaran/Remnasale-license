@@ -71,6 +71,10 @@ async def handle_verify(request: web.Request) -> web.Response:
     check_interval = await db.get_check_interval()
     result["check_interval"] = check_interval
 
+    if "offline_grace_days" not in result:
+        offline_grace_days = await db.get_offline_grace_days()
+        result["offline_grace_days"] = offline_grace_days
+
     status = 200 if result["valid"] else 403
     return web.json_response(result, status=status)
 
