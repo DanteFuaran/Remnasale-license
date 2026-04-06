@@ -146,7 +146,7 @@ def format_server(server: dict, owner_user: dict | None = None) -> str:
 
     key = server.get("license_key", "—")
 
-    muted_line = "🔇 Уведомления: Заглушён\n" if server.get("is_muted") else ""
+    muted_line = "\n🔇 Уведомления: Заглушён" if server.get("is_muted") else ""
 
     return (
         f"💻 <b>Профиль</b> <code>{name}</code>\n"
@@ -156,8 +156,7 @@ def format_server(server: dict, owner_user: dict | None = None) -> str:
         f"📦 <b>Remnasale{ver_suffix}</b>\n"
         f"<blockquote>{emoji} Статус: {status_text}\n"
         f"🤖 Телеграм бот: {bot_link}\n"
-        f"🌐 IP: {ip_display}\n"
-        f"{muted_line}</blockquote>\n"
+        f"🌐 IP: {ip_display}{muted_line}</blockquote>\n"
         f"\n"
         f"📦 <b>Support</b>\n"
         f"<blockquote>⭕ Статус: Не куплено\n"
