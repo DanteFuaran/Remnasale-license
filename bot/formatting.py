@@ -112,6 +112,8 @@ def format_server(server: dict, owner_user: dict | None = None) -> str:
     else:
         owner_display = "Отсутствует"
 
+    tg_id_display = f"<code>{owner_id}</code>" if owner_id else "Отсутствует"
+
     bot_username = server.get("bot_username", "") or ""
     bot_link = f"@{bot_username}" if bot_username else "Отсутствует"
 
@@ -147,9 +149,9 @@ def format_server(server: dict, owner_user: dict | None = None) -> str:
     muted_line = "🔇 Уведомления: Заглушён\n" if server.get("is_muted") else ""
 
     return (
-        f"👤 <b>Профиль</b>\n"
-        f"<blockquote>📦 Название: {name}\n"
-        f"👤 Имя: {owner_display}</blockquote>\n"
+        f"💻 <b>Профиль</b> <code>{name}</code>\n"
+        f"<blockquote>👤 Имя: {owner_display}\n"
+        f"📱 Телеграм ID: {tg_id_display}</blockquote>\n"
         f"\n"
         f"📦 <b>Remnasale{ver_suffix}</b>\n"
         f"<blockquote>{emoji} Статус: {status_text}\n"
