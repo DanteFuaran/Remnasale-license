@@ -474,9 +474,18 @@ async def handle_client_message(request: web.Request) -> web.Response:
     return web.json_response({"success": True})
 
 
+async def handle_banner(request: web.Request) -> web.Response:
+    """Serve the license server banner image."""
+    banner_path = os.path.join(os.path.dirname(__file__), "default_banner.jpg")
+    if not os.path.exists(banner_path):
+        return web.Response(status=404, text="Banner not found")
+    return web.FileResponse(banner_path)
+
+
 def setup_routes(app: web.Application):
     app.router.add_post("/api/v1/license/verify", handle_verify)
     app.router.add_post("/api/v1/license/release", handle_release)
+    app.router.add_get("/api/v1/license/banner", handle_banner)
     app.router.add_post("/api/v1/license/report", handle_report)
     app.router.add_post("/api/v1/client-message", handle_client_message)
     app.router.add_post("/api/v1/notify/offline", handle_notify_offline)
