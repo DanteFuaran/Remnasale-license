@@ -168,7 +168,7 @@ async def cb_toggle_from_list(call: CallbackQuery, db: Database):
     await db.set_server_active(server_id, new_active)
     servers = await db.get_all_servers()
     await show(call, clients_header(len(servers)), reply_markup=clients_kb(servers), db=db)
-    await call.answer("▶️ Возобновлён" if new_active else "⏸ Приостановлен")
+    await call.answer()
 
 
 # ── Добавить сервер (admin) ────────────────────────────────────────────────────
