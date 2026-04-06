@@ -83,7 +83,7 @@ def _pluralize_servers(n: int) -> str:
     return f"{n} серверов"
 
 
-def format_server(server: dict) -> str:
+def format_server(server: dict, owner_user: dict | None = None) -> str:
     emoji, status_text = server_status(server)
 
     name = server.get("name", "") or "Отсутствует"
@@ -95,7 +95,22 @@ def format_server(server: dict) -> str:
     if not owner_id:
         dev_ids_raw = server.get("dev_telegram_ids", "") or ""
         owner_id = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else ""
-    tg_id_display = f"<code>{owner_id}</code>" if owner_id else "Отсутствует"
+
+    # Кликабельное имя владельца
+    if owner_user:
+        uname = (owner_user.get("username") or "").strip()
+        fname = (owner_user.get("full_name") or "").strip()
+        display = fname or uname or owner_id
+        if uname:
+            owner_display = f'<a href="https://t.me/{uname}">{display}</a>'
+        elif owner_id:
+            owner_display = f'<a href="tg://user?id={owner_id}">{display}</a>'
+        else:
+            owner_display = display or "Отсутствует"
+    elif owner_id:
+        owner_display = f'<a href="tg://user?id={owner_id}">{owner_id}</a>'
+    else:
+        owner_display = "Отсутствует"
 
     bot_username = server.get("bot_username", "") or ""
     bot_link = f"@{bot_username}" if bot_username else "Отсутствует"
@@ -133,8 +148,8 @@ def format_server(server: dict) -> str:
 
     return (
         f"👤 <b>Профиль</b>\n"
-        f"<blockquote>👤 Имя: {name}\n"
-        f"📱 Телеграм ID: {tg_id_display}</blockquote>\n"
+        f"<blockquote>📦 Название: {name}\n"
+        f"👤 Имя: {owner_display}</blockquote>\n"
         f"\n"
         f"📦 <b>Remnasale{ver_suffix}</b>\n"
         f"<blockquote>{emoji} Статус: {status_text}\n"

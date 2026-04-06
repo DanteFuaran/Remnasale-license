@@ -9,6 +9,12 @@ from database import Database
 from aiogram.types import InputMediaPhoto
 from bot.banner import show
 from bot.formatting import format_server, clients_header
+
+
+async def _fmt_server(server: dict, db) -> str:
+    """format_server с подгрузкой данных владельца из БД."""
+    from bot.handlers.clients import _fmt_server as _clients_fmt_server
+    return await _clients_fmt_server(server, db)
 from bot.states import SendMessageState, BroadcastState, QuickReplyState
 from bot.keyboards.admin import compose_kb, server_detail_kb, clients_kb
 
@@ -599,7 +605,7 @@ async def cb_compose_send(call: CallbackQuery, state: FSMContext, db: Database):
                     pass
 
         await state.clear()
-        await show(call, f"✅ Сообщение отправлено ({sent_ok}/{len(dev_ids)})\n\n{format_server(server)}",
+        await show(call, f"✅ Сообщение отправлено ({sent_ok}/{len(dev_ids)})\n\n{await _fmt_server(server, db)}",
                    reply_markup=server_detail_kb(server), db=db)
         await call.answer("✅ Отправлено")
     else:

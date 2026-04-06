@@ -20,6 +20,21 @@ def _is_admin(user_id: int) -> bool:
     return user_id == BOT_ADMIN_ID
 
 
+async def _fmt_server(server: dict, db: Database) -> str:
+    """format_server с подгрузкой данных владельца из БД."""
+    owner_id_str = (server.get("owner_telegram_id", "") or "").strip()
+    if not owner_id_str:
+        dev_ids_raw = server.get("dev_telegram_ids", "") or ""
+        owner_id_str = dev_ids_raw.split(",")[0].strip() if dev_ids_raw else ""
+    owner_user = None
+    if owner_id_str:
+        try:
+            owner_user = await db.get_user(int(owner_id_str))
+        except Exception:
+            pass
+    return format_server(server, owner_user=owner_user)
+
+
 async def _auto_delete(bot: Bot, chat_id: int, message_id: int, delay: int = 5):
     await asyncio.sleep(delay)
     try:
@@ -131,7 +146,7 @@ async def cb_server_detail(call: CallbackQuery, state: FSMContext, db: Database)
     if not server:
         await _notify(call, "Сервер не найден")
         return
-    await show(call, format_server(server), reply_markup=server_detail_kb(server), db=db)
+    await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
     await call.answer()
 
 
@@ -199,7 +214,7 @@ async def cb_period_selected(call: CallbackQuery, state: FSMContext, db: Databas
     name = data.get("name", "Без названия")
     await state.clear()
     server = await db.add_server(name, period)
-    await show(call, f"✅ Сервер добавлен\n\n{format_server(server)}",
+    await show(call, f"✅ Сервер добавлен\n\n{await _fmt_server(server, db)}",
                reply_markup=server_detail_kb(server), db=db)
     await call.answer()
 
@@ -246,7 +261,7 @@ async def cb_extend_period(call: CallbackQuery, state: FSMContext, db: Database)
     if not server:
         await _notify(call, "Сервер не найден")
         return
-    await show(call, format_server(server), reply_markup=server_detail_kb(server), db=db)
+    await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
     await call.answer("✅ Тариф обновлён")
 
 
@@ -262,7 +277,7 @@ async def cb_reset_ip(call: CallbackQuery, state: FSMContext, db: Database):
     if not server:
         await _notify(call, "Сервер не найден")
         return
-    await show(call, format_server(server), reply_markup=server_detail_kb(server), db=db)
+    await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
     await call.answer("✅ IP сброшен")
 
 
@@ -280,7 +295,7 @@ async def cb_toggle(call: CallbackQuery, state: FSMContext, db: Database):
         return
     new_active = 0 if server["is_active"] else 1
     server = await db.set_server_active(server_id, new_active)
-    await show(call, format_server(server), reply_markup=server_detail_kb(server), db=db)
+    await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
     await call.answer("▶️ Возобновлён" if new_active else "⏸ Приостановлен")
 
 
@@ -299,7 +314,7 @@ async def cb_blacklist(call: CallbackQuery, state: FSMContext, db: Database):
     if server.get("is_blacklisted"):
         await _clear_confirm(state, call.bot, call.message.chat.id)
         server = await db.unblacklist_server(server_id)
-        await show(call, format_server(server), reply_markup=server_detail_kb(server), db=db)
+        await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
         await call.answer("🔓 Сервер разблокирован")
         return
 
@@ -313,7 +328,7 @@ async def cb_blacklist(call: CallbackQuery, state: FSMContext, db: Database):
                 pass
         await state.update_data(confirm_blacklist=None, confirm_msg_id=None)
         server = await db.blacklist_server(server_id)
-        await show(call, format_server(server), reply_markup=server_detail_kb(server), db=db)
+        await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
         await call.answer("🚫 Сервер заблокирован")
     else:
         await _clear_confirm(state, call.bot, call.message.chat.id)
@@ -348,7 +363,7 @@ async def cb_mute(call: CallbackQuery, state: FSMContext, db: Database):
     if not server:
         await _notify(call, "Сервер не найден")
         return
-    await show(call, format_server(server), reply_markup=server_detail_kb(server), db=db)
+    await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
     await call.answer("🔊 Разглушён" if not server.get("is_muted") else "🔇 Заглушён")
 
 
@@ -431,7 +446,7 @@ async def on_rename(message: Message, state: FSMContext, db: Database):
     chat_id = data.get("prompt_chat_id") or message.chat.id
     await state.clear()
     server = await db.rename_server(server_id, message.text.strip())
-    text = format_server(server) if server else "Сервер не найден."
+    text = await _fmt_server(server, db) if server else "Сервер не найден."
     kb = server_detail_kb(server) if server else None
     if prompt_msg_id:
         from bot.banner import edit_prompt
