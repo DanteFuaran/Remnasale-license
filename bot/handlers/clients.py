@@ -296,7 +296,7 @@ async def cb_toggle(call: CallbackQuery, state: FSMContext, db: Database):
     new_active = 0 if server["is_active"] else 1
     server = await db.set_server_active(server_id, new_active)
     await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
-    await call.answer("▶️ Возобновлён" if new_active else "⏸ Приостановлен")
+    await call.answer()
 
 
 # ── Заблокировать / Разблокировать ─────────────────────────────────────────────
