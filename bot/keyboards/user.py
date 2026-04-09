@@ -7,6 +7,7 @@ def user_main_menu_kb(support_url: str = "", community_url: str = "", is_admin: 
     buttons = [
         [InlineKeyboardButton(text="🖥 Мои серверы", callback_data="my_servers")],
         [InlineKeyboardButton(text="➕ Добавить сервер", callback_data="purchase_start")],
+        [InlineKeyboardButton(text="📥 Установка", callback_data="install_guide")],
     ]
     link_row = []
     if support_url:

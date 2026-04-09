@@ -243,18 +243,10 @@ do_update() {
     echo -e "${BLUE}══════════════════════════════════════${NC}"
     echo
 
-    local REPO_URL="https://github.com/DanteFuaran/Remnasale-license.git"
-    local TMP_DIR
-    TMP_DIR=$(mktemp -d)
+    local SRC_DIR="/opt/DFC Project/license-server"
 
-    (
-        git clone --depth=1 "$REPO_URL" "$TMP_DIR" >/dev/null 2>&1
-    ) &
-    show_spinner "Загрузка обновления с GitHub" "Репозиторий скачан"
-
-    if [ ! -f "$TMP_DIR/Dockerfile" ]; then
-        echo -e "${RED}✖ Не удалось скачать репозиторий${NC}"
-        rm -rf "$TMP_DIR"
+    if [ ! -d "$SRC_DIR" ] || [ ! -f "$SRC_DIR/main.py" ]; then
+        echo -e "${RED}✖ Исходные файлы не найдены в ${SRC_DIR}${NC}"
         echo -e "${DARKGRAY}Нажмите Enter для продолжения...${NC}"
         read -r
         return
@@ -262,19 +254,32 @@ do_update() {
 
     # Обновляем файлы (кроме .env и data/)
     (
-        for f in api.py config.py database.py main.py requirements.txt Dockerfile docker-compose.yml version default_banner.jpg install.sh; do
-            [ -e "$TMP_DIR/$f" ] && cp -f "$TMP_DIR/$f" "$COMPOSE_DIR/$f" 2>/dev/null || true
+        for f in api.py config.py database.py main.py requirements.txt Dockerfile docker-compose.yml version default_banner.jpg; do
+            [ -e "$SRC_DIR/$f" ] && cp -f "$SRC_DIR/$f" "$COMPOSE_DIR/$f" 2>/dev/null || true
         done
         # Директория bot/ — удаляем старую и копируем новую целиком
-        if [ -d "$TMP_DIR/bot" ]; then
+        if [ -d "$SRC_DIR/bot" ]; then
             rm -rf "$COMPOSE_DIR/bot"
-            cp -rf "$TMP_DIR/bot" "$COMPOSE_DIR/bot"
+            cp -rf "$SRC_DIR/bot" "$COMPOSE_DIR/bot"
+        fi
+        # Обновляем packages если есть
+        if [ -d "$SRC_DIR/packages" ]; then
+            cp -rf "$SRC_DIR/packages/." "$COMPOSE_DIR/packages/" 2>/dev/null || true
+        fi
+        # Обновляем site если есть
+        if [ -d "$SRC_DIR/site" ] || [ -d "$SRC_DIR/../about-page" ]; then
+            mkdir -p "$COMPOSE_DIR/site"
+            if [ -d "$SRC_DIR/site" ]; then
+                cp -rf "$SRC_DIR/site/." "$COMPOSE_DIR/site/" 2>/dev/null || true
+            elif [ -d "$SRC_DIR/../about-page" ]; then
+                cp -rf "$SRC_DIR/../about-page/." "$COMPOSE_DIR/site/" 2>/dev/null || true
+            fi
         fi
         # Обновляем rl.sh и устанавливаем в /usr/local/bin
-        if [ -f "$TMP_DIR/rl.sh" ]; then
-            cp -f "$TMP_DIR/rl.sh" "$COMPOSE_DIR/rl.sh"
+        if [ -f "$SRC_DIR/rl.sh" ]; then
+            cp -f "$SRC_DIR/rl.sh" "$COMPOSE_DIR/rl.sh"
             chmod +x "$COMPOSE_DIR/rl.sh"
-            cp -f "$TMP_DIR/rl.sh" /usr/local/bin/rl
+            cp -f "$SRC_DIR/rl.sh" /usr/local/bin/rl
             chmod +x /usr/local/bin/rl
         fi
     ) &
@@ -287,8 +292,6 @@ do_update() {
         docker compose up -d --force-recreate >/dev/null 2>&1
     ) &
     show_spinner "Пересборка и перезапуск" "Сервер обновлён"
-
-    rm -rf "$TMP_DIR"
 
     local NEW_VER
     NEW_VER=$(grep '^version:' "$COMPOSE_DIR/version" 2>/dev/null | awk '{print $2}' | tr -d '\n' || echo "?")

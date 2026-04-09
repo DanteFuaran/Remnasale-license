@@ -4,51 +4,42 @@ import logging
 import os
 import time
 from aiohttp import web, ClientSession, ClientTimeout
-from config import GITHUB_PAT, GITHUB_REPO, BOT_ADMIN_ID
+from config import BOT_ADMIN_ID, PACKAGES_DIR, LICENSE_SERVER_URL
 
 logger = logging.getLogger(__name__)
 
-# ── Cached GitHub version ─────────────────────────────────────────────
+# ── Cached Remnasale version ──────────────────────────────────────────
 _CACHE_TTL = 300  # 5 minutes
 _cached_version: str | None = None
 _cached_at: float = 0.0
-_GITHUB_BRANCH = "lic"
+
+# ── Product version cache ─────────────────────────────────────────────
+_product_version_cache: dict[str, tuple[str, float]] = {}
 
 
-async def _fetch_github_version() -> str:
-    """Fetch the 'version' file from the GitHub repo and parse the version string."""
+def _fetch_remnasale_version() -> str:
+    """Read Remnasale version from packages directory."""
     global _cached_version, _cached_at
 
     now = time.monotonic()
     if _cached_version and (now - _cached_at) < _CACHE_TTL:
         return _cached_version
 
-    if not GITHUB_PAT or not GITHUB_REPO:
-        logger.warning("[version] GITHUB_PAT or GITHUB_REPO not configured")
+    version_file = os.path.join(PACKAGES_DIR, "remnasale", "version")
+    if not os.path.exists(version_file):
         return _cached_version or "unknown"
 
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/version?ref={_GITHUB_BRANCH}"
-    headers = {
-        "Authorization": f"token {GITHUB_PAT}",
-        "Accept": "application/vnd.github.v3.raw",
-    }
-
     try:
-        timeout = ClientTimeout(total=15)
-        async with ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers) as resp:
-                if resp.status != 200:
-                    logger.warning(f"[version] GitHub returned {resp.status}")
-                    return _cached_version or "unknown"
-                text = await resp.text()
-                for line in text.splitlines():
-                    if line.startswith("version:"):
-                        version = line.split(":", 1)[1].strip()
-                        _cached_version = version
-                        _cached_at = now
-                        return version
+        with open(version_file, "r") as f:
+            for line in f:
+                if line.strip():
+                    # plain version or "version: X.Y.Z"
+                    v = line.split(":", 1)[-1].strip() if ":" in line else line.strip()
+                    _cached_version = v
+                    _cached_at = now
+                    return v
     except Exception as e:
-        logger.warning(f"[version] Failed to fetch from GitHub: {e}")
+        logger.warning(f"[version] Failed to read remnasale version: {e}")
 
     return _cached_version or "unknown"
 
@@ -113,7 +104,7 @@ async def handle_version(request: web.Request) -> web.Response:
     if not result["valid"]:
         return web.json_response({"error": result.get("reason", "invalid")}, status=403)
 
-    version = await _fetch_github_version()
+    version = _fetch_remnasale_version()
     return web.json_response({"version": version})
 
 
@@ -140,7 +131,7 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 async def handle_download(request: web.Request) -> web.Response:
-    """Proxy GitHub tarball download so clients don't need a GitHub PAT."""
+    """Serve Remnasale tarball from packages directory (legacy endpoint)."""
     db = request.app["db"]
     key = request.query.get("key", "").strip()
 
@@ -151,41 +142,21 @@ async def handle_download(request: web.Request) -> web.Response:
     if not result["valid"]:
         return web.json_response({"error": result.get("reason", "invalid")}, status=403)
 
-    if not GITHUB_PAT or not GITHUB_REPO:
-        return web.json_response({"error": "download not configured"}, status=503)
+    tarball = os.path.join(PACKAGES_DIR, "remnasale", "remnasale.tar.gz")
+    if not os.path.exists(tarball):
+        return web.json_response({"error": "package_not_found"}, status=404)
 
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/tarball/{_GITHUB_BRANCH}"
-    headers = {
-        "Authorization": f"token {GITHUB_PAT}",
-        "Accept": "application/vnd.github.v3+json",
-    }
-
-    try:
-        timeout = ClientTimeout(total=180)
-        async with ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers) as upstream:
-                if upstream.status != 200:
-                    return web.Response(status=502, text="Failed to fetch from upstream")
-
-                resp = web.StreamResponse(
-                    status=200,
-                    headers={
-                        "Content-Type": "application/gzip",
-                        "Content-Disposition": "attachment; filename=remnasale.tar.gz",
-                    },
-                )
-                await resp.prepare(request)
-                async for chunk in upstream.content.iter_chunked(64 * 1024):
-                    await resp.write(chunk)
-                await resp.write_eof()
-                return resp
-    except Exception as e:
-        logger.error(f"[download] Proxy error: {e}")
-        return web.Response(status=502, text="Download proxy error")
+    return web.FileResponse(
+        tarball,
+        headers={
+            "Content-Type": "application/gzip",
+            "Content-Disposition": "attachment; filename=remnasale.tar.gz",
+        },
+    )
 
 
 async def handle_install_script(request: web.Request) -> web.Response:
-    """Serve the install script from GitHub so clients don't need a PAT."""
+    """Serve the Remnasale install script from packages directory (legacy endpoint)."""
     db = request.app["db"]
     key = request.query.get("key", "").strip()
 
@@ -196,31 +167,22 @@ async def handle_install_script(request: web.Request) -> web.Response:
     if not result["valid"]:
         return web.json_response({"error": result.get("reason", "invalid")}, status=403)
 
-    if not GITHUB_PAT or not GITHUB_REPO:
-        return web.json_response({"error": "not configured"}, status=503)
-
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/remnasale-install.sh?ref={_GITHUB_BRANCH}"
-    headers = {
-        "Authorization": f"token {GITHUB_PAT}",
-        "Accept": "application/vnd.github.v3.raw",
-    }
+    # Try to find install script inside the remnasale tarball or a standalone script
+    script_path = os.path.join(PACKAGES_DIR, "remnasale", "install.sh")
+    if not os.path.exists(script_path):
+        return web.Response(status=404, text="Install script not found")
 
     try:
-        timeout = ClientTimeout(total=30)
-        async with ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers) as upstream:
-                if upstream.status != 200:
-                    logger.warning(f"[install-script] GitHub returned {upstream.status}")
-                    return web.Response(status=502, text="Failed to fetch install script")
-                script = await upstream.text()
-                return web.Response(
-                    text=script,
-                    content_type="text/plain",
-                    headers={"Cache-Control": "no-cache"},
-                )
+        with open(script_path, "r") as f:
+            script = f.read()
+        return web.Response(
+            text=script,
+            content_type="text/plain",
+            headers={"Cache-Control": "no-cache"},
+        )
     except Exception as e:
         logger.error(f"[install-script] Error: {e}")
-        return web.Response(status=502, text="Failed to fetch install script")
+        return web.Response(status=500, text="Failed to serve install script")
 
 
 async def handle_notify_offline(request: web.Request) -> web.Response:
@@ -240,21 +202,27 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
     server_name = server["name"] if server else (license_key[:16] if license_key else "???")
 
     if bot and BOT_ADMIN_ID:
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         if event == "online":
             text = (
-                f"\U0001f7e2 <b>\u0421\u0432\u044f\u0437\u044c \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0430</b>\n\n"
-                f"\u0421\u0435\u0440\u0432\u0435\u0440: <b>{server_name}</b>\n"
+                f"\U0001f7e2 <b>Связь восстановлена!</b>\n\n"
+                f"Сервер: <b>{server_name}</b>\n"
                 f"IP: <code>{server_ip}</code>"
             )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline", style="success")],
+            ])
         else:
             text = (
-                f"\U0001f7e1 <b>\u041a\u043b\u0438\u0435\u043d\u0442 \u043f\u043e\u0442\u0435\u0440\u044f\u043b \u0441\u0432\u044f\u0437\u044c</b>\n\n"
-                f"\u0421\u0435\u0440\u0432\u0435\u0440: <b>{server_name}</b>\n"
-                f"IP: <code>{server_ip}</code>\n"
-                f"\u0410\u0432\u0442\u043e\u043d\u043e\u043c\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0442\u0430: <b>{days_left} \u0434\u043d.</b>"
+                f"\U0001f534 <b>Связь потеряна!</b>\n\n"
+                f"Сервер: <b>{server_name}</b>\n"
+                f"IP: <code>{server_ip}</code>"
             )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="❌ Закрыть", callback_data="dismiss_notify_offline", style="danger")],
+            ])
         try:
-            await bot.send_message(BOT_ADMIN_ID, text)
+            await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb)
         except Exception as e:
             logger.warning(f"[notify_offline] Failed to send TG message: {e}")
 
@@ -501,6 +469,159 @@ async def handle_banner(request: web.Request) -> web.Response:
     return web.FileResponse(banner_path)
 
 
+# ── Product-based endpoints (for DFC Manager) ─────────────────────────
+
+def _read_product_version(product: str) -> str:
+    """Read version from product's version file in packages directory."""
+    now = time.monotonic()
+    cached = _product_version_cache.get(product)
+    if cached and (now - cached[1]) < _CACHE_TTL:
+        return cached[0]
+
+    version_file = os.path.join(PACKAGES_DIR, product, "version")
+    if not os.path.exists(version_file):
+        return "unknown"
+
+    try:
+        with open(version_file, "r") as f:
+            for line in f:
+                if line.startswith("version:"):
+                    ver = line.split(":", 1)[1].strip()
+                    _product_version_cache[product] = (ver, now)
+                    return ver
+    except Exception as e:
+        logger.warning(f"[product-version] Failed to read {product} version: {e}")
+
+    return "unknown"
+
+
+async def handle_product_verify(request: web.Request) -> web.Response:
+    """Verify license key for a specific product and bind to IP."""
+    db = request.app["db"]
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"valid": False, "reason": "invalid_body"}, status=400)
+
+    license_key = data.get("license_key", "").strip()
+    product = data.get("product", "").strip()
+    server_ip = data.get("server_ip", "").strip()
+
+    if not license_key or not product:
+        return web.json_response({"valid": False, "reason": "missing_fields"}, status=400)
+
+    result = await db.verify_product(license_key, product, server_ip)
+    status = 200 if result.get("valid") else 403
+    return web.json_response(result, status=status)
+
+
+async def handle_product_download(request: web.Request) -> web.Response:
+    """Download a product tarball (requires valid license key)."""
+    db = request.app["db"]
+    key = request.query.get("key", "").strip()
+    product = request.query.get("product", "").strip()
+
+    if not key or not product:
+        return web.Response(status=400, text="Missing key or product")
+
+    result = await db.check_key_valid(key)
+    if not result["valid"]:
+        return web.json_response({"error": result.get("reason", "invalid")}, status=403)
+
+    # Check product is included in key
+    server = await db.get_server_by_key(key)
+    if server:
+        products = json.loads(server.get("products") or '["remnasale"]')
+        if product not in products:
+            return web.json_response({"error": "product_not_included"}, status=403)
+
+    tarball = os.path.join(PACKAGES_DIR, product, f"{product}.tar.gz")
+    if not os.path.exists(tarball):
+        return web.json_response({"error": "package_not_found"}, status=404)
+
+    return web.FileResponse(
+        tarball,
+        headers={
+            "Content-Type": "application/gzip",
+            "Content-Disposition": f"attachment; filename={product}.tar.gz",
+        },
+    )
+
+
+async def handle_product_version(request: web.Request) -> web.Response:
+    """Get the latest version of a product."""
+    product = request.query.get("product", "").strip()
+    if not product:
+        return web.Response(status=400, text="Missing product")
+
+    version = _read_product_version(product)
+    return web.json_response({"product": product, "version": version})
+
+
+async def handle_manager_install(request: web.Request) -> web.Response:
+    """Serve the DFC Manager install script (public, no auth required)."""
+    script_path = os.path.join(PACKAGES_DIR, "dfc-manager", "install.sh")
+    if not os.path.exists(script_path):
+        return web.Response(status=404, text="Install script not found")
+
+    try:
+        with open(script_path, "r") as f:
+            script = f.read()
+        return web.Response(
+            text=script,
+            content_type="text/plain",
+            headers={"Cache-Control": "no-cache"},
+        )
+    except Exception as e:
+        logger.error(f"[manager-install] Error: {e}")
+        return web.Response(status=500, text="Failed to serve install script")
+
+
+async def handle_manager_download(request: web.Request) -> web.Response:
+    """Serve the DFC Manager tarball (public, no auth required)."""
+    tarball = os.path.join(PACKAGES_DIR, "dfc-manager", "dfc-manager.tar.gz")
+    if not os.path.exists(tarball):
+        return web.json_response({"error": "package_not_found"}, status=404)
+
+    return web.FileResponse(
+        tarball,
+        headers={
+            "Content-Type": "application/gzip",
+            "Content-Disposition": "attachment; filename=dfc-manager.tar.gz",
+        },
+    )
+
+
+async def handle_manager_version(request: web.Request) -> web.Response:
+    """Get the latest DFC Manager version (public)."""
+    version = _read_product_version("dfc-manager")
+    return web.json_response({"version": version})
+
+
+async def handle_product_release_ip(request: web.Request) -> web.Response:
+    """Release IP binding for a specific product."""
+    db = request.app["db"]
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "reason": "invalid_body"}, status=400)
+
+    license_key = data.get("license_key", "").strip()
+    product = data.get("product", "").strip()
+
+    if not license_key or not product:
+        return web.json_response({"success": False, "reason": "missing_fields"}, status=400)
+
+    server = await db.get_server_by_key(license_key)
+    if not server:
+        return web.json_response({"success": False, "reason": "not_found"}, status=404)
+
+    result = await db.reset_product_ip(server["id"], product)
+    if result:
+        return web.json_response({"success": True})
+    return web.json_response({"success": False, "reason": "unknown_product"}, status=400)
+
+
 def setup_routes(app: web.Application):
     app.router.add_post("/api/v1/license/verify", handle_verify)
     app.router.add_post("/api/v1/license/release", handle_release)
@@ -513,4 +634,13 @@ def setup_routes(app: web.Application):
     app.router.add_get("/api/v1/install/script", handle_install_script)
     app.router.add_post("/api/v1/webhook/yoomoney", handle_webhook_yoomoney)
     app.router.add_post("/api/v1/webhook/heleket", handle_webhook_heleket)
+    # Product-based endpoints (DFC Manager ecosystem)
+    app.router.add_post("/api/v1/product/verify", handle_product_verify)
+    app.router.add_get("/api/v1/product/download", handle_product_download)
+    app.router.add_get("/api/v1/product/version", handle_product_version)
+    app.router.add_post("/api/v1/product/release", handle_product_release_ip)
+    # DFC Manager distribution (public, no auth)
+    app.router.add_get("/api/v1/manager/install", handle_manager_install)
+    app.router.add_get("/api/v1/manager/download", handle_manager_download)
+    app.router.add_get("/api/v1/manager/version", handle_manager_version)
     app.router.add_get("/health", handle_health)

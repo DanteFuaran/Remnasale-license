@@ -33,6 +33,11 @@ GATEWAY_TYPES = {
     "stars": {"label": "⭐ Telegram Stars", "fields": {}},
 }
 
+PRODUCTS = {
+    "remnasale": {"label": "🤖 Remnasale", "ip_field": "remnasale_ip"},
+    "dfc_support": {"label": "💬 DFC Support", "ip_field": "support_ip"},
+}
+
 
 class LicenseDB:
     def __init__(self, path: str):
@@ -91,6 +96,13 @@ class LicenseDB:
                 await db.execute("ALTER TABLE servers ADD COLUMN owner_telegram_id TEXT DEFAULT ''")
             if "donate_muted" not in columns:
                 await db.execute("ALTER TABLE servers ADD COLUMN donate_muted INTEGER DEFAULT 0")
+            # Мульти-продуктовая система
+            if "products" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN products TEXT DEFAULT '[\"remnasale\"]'")
+            if "remnasale_ip" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN remnasale_ip TEXT DEFAULT ''")
+            if "support_ip" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN support_ip TEXT DEFAULT ''")
 
             # Платёжные шлюзы
             await db.execute("""
@@ -168,7 +180,7 @@ class LicenseDB:
     async def get_server_by_key(self, key: str) -> Optional[dict]:
         return await self._fetch_one("SELECT * FROM servers WHERE license_key = ?", (key,))
 
-    async def add_server(self, name: str, period: str) -> dict:
+    async def add_server(self, name: str, period: str, products: list[str] | None = None) -> dict:
         key = secrets.token_hex(20)
         now = datetime.now(timezone.utc)
 
@@ -176,13 +188,16 @@ class LicenseDB:
             servers = await self.get_all_servers()
             name = f"Сервер {len(servers) + 1}"
 
+        if products is None:
+            products = ["remnasale"]
+
         _, days = PERIODS.get(period, ("", 30))
         expires = (now + timedelta(days=days)).isoformat() if days else None
 
         async with aiosqlite.connect(self.path) as db:
             cursor = await db.execute(
-                "INSERT INTO servers (name, license_key, period, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-                (name, key, period, now.isoformat(), expires),
+                "INSERT INTO servers (name, license_key, period, created_at, expires_at, products) VALUES (?, ?, ?, ?, ?, ?)",
+                (name, key, period, now.isoformat(), expires, json.dumps(products)),
             )
             await db.commit()
             return await self.get_server(cursor.lastrowid)
@@ -367,6 +382,82 @@ class LicenseDB:
             if datetime.now(timezone.utc) > expires:
                 return {"valid": False, "reason": "expired"}
         return {"valid": True}
+
+    async def verify_product(self, key: str, product: str, server_ip: str) -> dict:
+        """Verify a license key for a specific product and IP."""
+        server = await self.get_server_by_key(key)
+        if not server:
+            return {"valid": False, "reason": "not_found"}
+
+        if server.get("is_blacklisted"):
+            return {"valid": False, "reason": "blacklisted"}
+
+        if not server["is_active"]:
+            return {"valid": False, "reason": "suspended"}
+
+        if server["expires_at"]:
+            expires = datetime.fromisoformat(server["expires_at"])
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > expires:
+                return {"valid": False, "reason": "expired"}
+
+        # Check product is included in key
+        products = json.loads(server.get("products") or '["remnasale"]')
+        if product not in products:
+            return {"valid": False, "reason": "product_not_included", "available_products": products}
+
+        # Check IP binding per product
+        product_info = PRODUCTS.get(product)
+        if not product_info:
+            return {"valid": False, "reason": "unknown_product"}
+
+        ip_field = product_info["ip_field"]
+        bound_ip = (server.get(ip_field) or "").strip()
+
+        if server_ip:
+            if bound_ip and bound_ip != server_ip:
+                return {
+                    "valid": False,
+                    "reason": "product_ip_bound",
+                    "bound_ip": bound_ip,
+                    "product": product,
+                }
+            if not bound_ip:
+                async with aiosqlite.connect(self.path) as db:
+                    await db.execute(
+                        f"UPDATE servers SET {ip_field} = ? WHERE id = ?",
+                        (server_ip, server["id"]),
+                    )
+                    await db.commit()
+
+        return {"valid": True, "product": product, "server_id": server["id"]}
+
+    async def reset_product_ip(self, server_id: int, product: str) -> Optional[dict]:
+        """Reset IP binding for a specific product."""
+        product_info = PRODUCTS.get(product)
+        if not product_info:
+            return None
+        ip_field = product_info["ip_field"]
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(f"UPDATE servers SET {ip_field} = '' WHERE id = ?", (server_id,))
+            await db.commit()
+        return await self.get_server(server_id)
+
+    async def get_server_products(self, server_id: int) -> list[str]:
+        server = await self.get_server(server_id)
+        if not server:
+            return []
+        return json.loads(server.get("products") or '["remnasale"]')
+
+    async def set_server_products(self, server_id: int, products: list[str]) -> Optional[dict]:
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE servers SET products = ? WHERE id = ?",
+                (json.dumps(products), server_id),
+            )
+            await db.commit()
+        return await self.get_server(server_id)
 
     async def get_setting(self, key: str, default: str = "") -> str:
         row = await self._fetch_one("SELECT value FROM settings WHERE key = ?", (key,))
@@ -654,9 +745,9 @@ class LicenseDB:
 
         async with aiosqlite.connect(self.path) as db:
             cursor = await db.execute(
-                """INSERT INTO servers (name, license_key, period, created_at, expires_at, dev_telegram_ids)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (name, key, duration, now.isoformat(), expires, str(user_id)),
+                """INSERT INTO servers (name, license_key, period, created_at, expires_at, dev_telegram_ids, products)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (name, key, duration, now.isoformat(), expires, str(user_id), json.dumps(products)),
             )
             await db.commit()
             return await self.get_server(cursor.lastrowid)
@@ -693,6 +784,28 @@ class LicenseDB:
     async def get_users_count(self) -> int:
         row = await self._fetch_one("SELECT COUNT(*) as cnt FROM users")
         return row["cnt"] if row else 0
+
+    async def get_silent_servers(self, threshold_minutes: int) -> list[dict]:
+        """Возвращает активные серверы, которые не делали check-in дольше threshold_minutes."""
+        servers = await self.get_all_servers()
+        now = datetime.now(timezone.utc)
+        result = []
+        for s in servers:
+            if not s.get("is_active") or s.get("is_blacklisted"):
+                continue
+            last_check = s.get("last_check_at")
+            if not last_check:
+                continue
+            try:
+                dt = datetime.fromisoformat(last_check)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                elapsed = (now - dt).total_seconds() / 60
+                if elapsed >= threshold_minutes:
+                    result.append(s)
+            except (ValueError, TypeError):
+                continue
+        return result
 
 
 Database = LicenseDB

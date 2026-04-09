@@ -371,6 +371,15 @@ async def cb_dismiss_client_msg(call: CallbackQuery):
     await call.answer()
 
 
+@router.callback_query(F.data == "dismiss_notify_offline")
+async def cb_dismiss_notify_offline(call: CallbackQuery):
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    await call.answer()
+
+
 # ── Быстрый ответ на сообщение клиента ────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("qreply:"))

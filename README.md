@@ -1,6 +1,6 @@
 # 🔑 Remnasale License
 
-Лицензионный сервер для управления доступом к [Remnasale](https://github.com/DanteFuaran/Remnasale).
+Лицензионный сервер для управления доступом к Remnasale — часть экосистемы DFC Project.
 
 Telegram-бот + REST API для выдачи, продления и отзыва лицензий. Каждый клиент получает уникальный ключ, привязанный к IP его сервера. Проверка происходит раз в 3 дня — при невалидной лицензии бот останавливается.
 
@@ -9,11 +9,10 @@ Telegram-бот + REST API для выдачи, продления и отзыв
 ## 🚀 Установка
 
 ```bash
-cd /opt && bash <(curl -s https://raw.githubusercontent.com/DanteFuaran/Remnasale-license/main/install.sh)
+cd "/opt/DFC Project/license-server" && bash install.sh
 ```
 
-Скрипт запросит токен бота, Telegram ID, GitHub PAT, домен сервера и порт API, после чего автоматически развернёт контейнер.
-```
+Скрипт запросит токен бота, Telegram ID, домен сервера, порт API и опционально домен сайта DFC, после чего автоматически развернёт контейнер.
 
 ---
 
@@ -26,8 +25,8 @@ cd /opt && bash <(curl -s https://raw.githubusercontent.com/DanteFuaran/Remnasal
 | `API_HOST` | Адрес для API (по умолчанию `0.0.0.0`) |
 | `API_PORT` | Порт API (по умолчанию `8080`) |
 | `DATABASE_PATH` | Путь к SQLite базе (по умолчанию `/data/license.db`) |
-| `GITHUB_PAT` | GitHub PAT с доступом к репозиторию Remnasale (scope: `repo`) |
-| `GITHUB_REPO` | Репозиторий (по умолчанию `DanteFuaran/Remnasale`) |
+| `SITE_URL` | URL сайта DFC (если был указан домен при установке) |
+| `LICENSE_SERVER_URL` | URL лицензионного сервера |
 
 ---
 
@@ -42,7 +41,7 @@ cd /opt && bash <(curl -s https://raw.githubusercontent.com/DanteFuaran/Remnasal
 { "license_key": "abc123", "server_ip": "1.2.3.4" }
 
 // Ответ 200 (валидна)
-{ "valid": true, "token": "<github_pat>", "expires_at": "2026-07-01T00:00:00+00:00" }
+{ "valid": true, "expires_at": "2026-07-01T00:00:00+00:00" }
 
 // Ответ 403 (невалидна)
 { "valid": false, "reason": "suspended" }
@@ -79,9 +78,8 @@ cd /opt && bash <(curl -s https://raw.githubusercontent.com/DanteFuaran/Remnasal
 ## 🔄 Обновление
 
 ```bash
-cd /opt/remnasale-license
-git pull origin main
-docker compose up -d --build
+rl
+# Выберите пункт «Обновить»
 ```
 
 ---

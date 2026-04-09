@@ -4,7 +4,7 @@ import os
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from aiogram.types import BotCommand, BufferedInputFile
+from aiogram.types import BotCommand, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import BOT_TOKEN, API_HOST, API_PORT, DATABASE_PATH, BOT_ADMIN_ID
 from database import LicenseDB
@@ -41,6 +41,68 @@ async def _init_default_banner(bot: Bot, db: LicenseDB):
         logger.warning(f"[banner] Failed to init default banner: {e}")
 
 
+# Множество серверов, о которых уже уведомлено (сбрасывается при восстановлении)
+_notified_silent: set[int] = set()
+
+
+async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
+    """Фоновый мониторинг: если клиент молчит дольше 3 * check_interval — уведомляем."""
+    await asyncio.sleep(60)  # Дать серверу запуститься
+    while True:
+        try:
+            check_interval = await db.get_check_interval()
+            # Порог: 3 интервала проверки (минимум 5 минут)
+            threshold = max(5, check_interval * 3)
+            silent = await db.get_silent_servers(threshold)
+
+            silent_ids = {s["id"] for s in silent}
+
+            # Восстановившиеся серверы
+            recovered = _notified_silent - silent_ids
+            for sid in recovered:
+                server = await db.get_server(sid)
+                if server and BOT_ADMIN_ID:
+                    text = (
+                        f"🟢 <b>Связь восстановлена!</b>\n\n"
+                        f"Сервер: <b>{server['name']}</b>\n"
+                        f"IP: <code>{server.get('server_ip', '—')}</code>"
+                    )
+                    kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline", style="success")],
+                    ])
+                    try:
+                        await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb)
+                    except Exception:
+                        pass
+            _notified_silent.difference_update(recovered)
+
+            # Новые молчащие серверы
+            for s in silent:
+                if s["id"] in _notified_silent:
+                    continue
+                if s.get("is_muted"):
+                    continue
+                if BOT_ADMIN_ID:
+                    text = (
+                        f"🔴 <b>Связь потеряна!</b>\n\n"
+                        f"Сервер: <b>{s['name']}</b>\n"
+                        f"IP: <code>{s.get('server_ip', '—')}</code>"
+                    )
+                    kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="❌ Закрыть", callback_data="dismiss_notify_offline", style="danger")],
+                    ])
+                    try:
+                        await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb)
+                        _notified_silent.add(s["id"])
+                    except Exception:
+                        pass
+
+        except Exception as e:
+            logger.warning(f"[monitor] Client monitor error: {e}")
+
+        await asyncio.sleep(60)  # Проверять раз в минуту
+
+
 async def main():
     db = LicenseDB(DATABASE_PATH)
     await db.init()
@@ -67,6 +129,9 @@ async def main():
 
     asyncio.create_task(autobackup_loop(db, bot))
     logger.info("Autobackup scheduler started")
+
+    asyncio.create_task(_monitor_clients_loop(db, bot))
+    logger.info("Client monitor started")
 
     try:
         await dp.start_polling(bot)

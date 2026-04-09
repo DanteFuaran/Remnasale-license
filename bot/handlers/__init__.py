@@ -8,6 +8,7 @@ from bot.handlers.settings import router as settings_router
 from bot.handlers.payments_admin import router as payments_admin_router
 from bot.handlers.compose import router as compose_router
 from bot.handlers.backup import router as backup_router
+from bot.handlers.install import router as install_router
 from bot.handlers.catch_all import router as catch_all_router
 
 
@@ -20,5 +21,6 @@ def setup_routers(dp_or_router: Router):
     dp_or_router.include_router(payments_admin_router)
     dp_or_router.include_router(compose_router)
     dp_or_router.include_router(backup_router)
+    dp_or_router.include_router(install_router)
     # catch_all must be last
     dp_or_router.include_router(catch_all_router)

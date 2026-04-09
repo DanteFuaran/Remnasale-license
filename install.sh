@@ -13,7 +13,6 @@ NC='\033[0m'
 
 _ORIG_STTY=$(stty -g 2>/dev/null || true)
 INSTALL_DIR="/opt/remnasale-license"
-REPO_URL="https://github.com/DanteFuaran/Remnasale-license.git"
 _spin=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
 cleanup_terminal() {
@@ -177,8 +176,8 @@ fi
 echo -e "${CYAN}Для установки понадобятся:${NC}"
 echo -e "  ${DARKGRAY}•${NC} Токен Telegram бота — получить у ${YELLOW}@BotFather${NC}"
 echo -e "  ${DARKGRAY}•${NC} Ваш Telegram ID — узнать у ${YELLOW}@userinfobot${NC}"
-echo -e "  ${DARKGRAY}•${NC} GitHub PAT с доступом к Remnasale ${DARKGRAY}(scope: repo)${NC}"
-echo -e "  ${DARKGRAY}•${NC} Домен этого сервера ${DARKGRAY}(например: rs-license.dfc-online.com)${NC}"
+echo -e "  ${DARKGRAY}•${NC} Домен лиц. сервера ${DARKGRAY}(например: rs-license.dfc-online.com)${NC}"
+echo -e "  ${DARKGRAY}•${NC} Домен сайта DFC ${DARKGRAY}(например: dfc-online.com)${NC} — необязательно"
 echo
 echo -e "${BLUE}══════════════════════════════════════${NC}"
 echo
@@ -203,23 +202,23 @@ while [[ -z "$BOT_ADMIN_ID" ]] || ! [[ "$BOT_ADMIN_ID" =~ ^[0-9]+$ ]]; do
 done
 echo
 
-# ── GITHUB_PAT ──────────────────────────────────────────────
-GITHUB_PAT=""
-while [[ -z "$GITHUB_PAT" ]]; do
-    reading_inline "GitHub PAT (scope: repo):" GITHUB_PAT
-    [[ $? -eq 2 ]] && _cancel_exit
-    [[ -z "$GITHUB_PAT" ]] && echo -e "${RED}  ✖  PAT не может быть пустым.${NC}"
-done
-echo
-
 # ── LICENSE_DOMAIN ─────────────────────────────────────────
 LICENSE_DOMAIN=""
 while [[ -z "$LICENSE_DOMAIN" ]]; do
-    reading_inline "Домен этого сервера (без https://)" LICENSE_DOMAIN
+    reading_inline "Домен лиц. сервера (без https://):" LICENSE_DOMAIN
     [[ $? -eq 2 ]] && _cancel_exit
     LICENSE_DOMAIN=$(echo "$LICENSE_DOMAIN" | sed 's|^https\?://||; s|/.*||')
     [[ -z "$LICENSE_DOMAIN" ]] && echo -e "${RED}  ✖  Домен не может быть пустым.${NC}"
 done
+echo
+
+# ── SITE_DOMAIN (необязательно) ───────────────────────────
+SITE_DOMAIN=""
+reading_inline "Домен сайта DFC (Enter — пропустить):" SITE_DOMAIN
+if [[ $? -eq 2 ]]; then
+    SITE_DOMAIN=""
+fi
+SITE_DOMAIN=$(echo "$SITE_DOMAIN" | sed 's|^https\?://||; s|/.*||')
 echo
 
 API_PORT="8080"
@@ -235,25 +234,30 @@ if [[ -d "$INSTALL_DIR" ]]; then
     echo -e "${GREEN}✔${NC}  Предыдущая установка удалена."
 fi
 
-# ── Клонирование репозитория ────────────────────────────────
-_run_spinner "Клонирование license-сервера" env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="" git -c credential.helper="" clone "$REPO_URL" "$INSTALL_DIR"
-if [[ $? -ne 0 ]]; then
-    echo -e "${RED}✖  Ошибка клонирования. Проверьте интернет-соединение.${NC}"
+# ── Копирование файлов проекта ──────────────────────────────
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -d "${_SCRIPT_DIR}/bot" ]] && [[ -f "${_SCRIPT_DIR}/main.py" ]]; then
+    cp -a "${_SCRIPT_DIR}/" "${INSTALL_DIR}/"
+else
+    echo -e "${RED}✖  Не найдены файлы проекта рядом с install.sh${NC}"
+    echo -e "${RED}   Убедитесь, что запускаете install.sh из каталога с проектом.${NC}"
     exit 1
 fi
-echo -e "${GREEN}✔${NC}  Репозиторий клонирован."
+echo -e "${GREEN}✔${NC}  Файлы скопированы."
 
 # ── Создание .env ───────────────────────────────────────────
 mkdir -p "$INSTALL_DIR/data"
+_SITE_URL=""
+[[ -n "$SITE_DOMAIN" ]] && _SITE_URL="https://${SITE_DOMAIN}"
 cat > "$INSTALL_DIR/.env" <<EOF
 BOT_TOKEN=${BOT_TOKEN}
 BOT_ADMIN_ID=${BOT_ADMIN_ID}
 API_HOST=0.0.0.0
 API_PORT=${API_PORT}
 DATABASE_PATH=/data/license.db
-GITHUB_PAT=${GITHUB_PAT}
-GITHUB_REPO=DanteFuaran/Remnasale
 PUBLIC_URL=https://${LICENSE_DOMAIN}
+LICENSE_SERVER_URL=https://${LICENSE_DOMAIN}
+SITE_URL=${_SITE_URL}
 EOF
 echo -e "${GREEN}✔${NC}  Файл .env создан."
 echo
@@ -423,6 +427,120 @@ COMPOSE
 _setup_nginx "$LICENSE_DOMAIN"
 echo
 
+# ── Настройка сайта DFC (опционально) ──────────────────────
+_setup_site() {
+    local domain="$1"
+    local DIR_NGINX="/opt/nginx/"
+    local SITE_DIR="$INSTALL_DIR/site"
+
+    echo -e "${GREEN}▶${NC}  Настройка сайта DFC на ${YELLOW}${domain}${NC}..."
+
+    # === SSL через ACME ===
+    if [[ -d "/etc/letsencrypt/live/${domain}" ]]; then
+        echo -e "${GREEN}✔${NC}  SSL сертификат для ${domain} уже существует."
+    else
+        printf "${GREEN}▶${NC}  Получение SSL сертификата для ${domain}...\n"
+        if ! command -v certbot &>/dev/null; then
+            apt-get update -qq >/dev/null 2>&1
+            apt-get install -y -qq certbot >/dev/null 2>&1
+        fi
+        ufw allow 80/tcp >/dev/null 2>&1 || true
+        ufw reload >/dev/null 2>&1 || true
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'remnawave-nginx'; then
+            (cd "${DIR_NGINX}" && docker compose stop) >/dev/null 2>&1
+            local _nginx_was_running=true
+        else
+            local _nginx_was_running=false
+        fi
+        certbot certonly --standalone -d "${domain}" \
+            --non-interactive --agree-tos --register-unsafely-without-email \
+            --http-01-port 80 --key-type ecdsa >/dev/null 2>&1
+        if [[ $? -ne 0 ]]; then
+            echo -e "${YELLOW}⚠  Не удалось получить SSL для ${domain}. Проверьте DNS.${NC}"
+            $_nginx_was_running && (cd "${DIR_NGINX}" && docker compose up -d) >/dev/null 2>&1
+            return
+        fi
+        echo -e "${GREEN}✔${NC}  SSL сертификат для ${domain} получен."
+        $_nginx_was_running && (cd "${DIR_NGINX}" && docker compose up -d) >/dev/null 2>&1
+    fi
+
+    # === Копируем сертификат ===
+    local ssl_dst="${DIR_NGINX}ssl/${domain}"
+    mkdir -p "$ssl_dst"
+    cp -fL "/etc/letsencrypt/live/${domain}/fullchain.pem" "${ssl_dst}/fullchain.pem"
+    cp -fL "/etc/letsencrypt/live/${domain}/privkey.pem" "${ssl_dst}/privkey.pem"
+
+    # === Добавляем volume для сайта в docker-compose nginx ===
+    if [[ -f "${DIR_NGINX}docker-compose.yml" ]]; then
+        if ! grep -q "/var/www/dfc-site" "${DIR_NGINX}docker-compose.yml" 2>/dev/null; then
+            sed -i "/\/var\/www\/html.*:ro/a\\      - ${SITE_DIR}:/var/www/dfc-site:ro" "${DIR_NGINX}docker-compose.yml" 2>/dev/null || true
+        fi
+    fi
+
+    # === Удаляем старые блоки ABOUT/SITE ===
+    if [[ -f "${DIR_NGINX}nginx.conf" ]]; then
+        local _t; _t=$(mktemp)
+        sed '/^# BEGIN_ABOUT_BLOCK/,/^# END_ABOUT_BLOCK/d; /^# BEGIN_SITE_BLOCK/,/^# END_SITE_BLOCK/d' "${DIR_NGINX}nginx.conf" > "$_t" && cat "$_t" > "${DIR_NGINX}nginx.conf"
+        rm -f "$_t"
+    fi
+
+    # === Вставляем server-блок для сайта ===
+    local _block
+    _block=$(cat <<BLOCK_EOF
+# BEGIN_SITE_BLOCK
+server {
+    server_name ${domain};
+    listen 443 ssl;
+    http2 on;
+
+    ssl_certificate "/etc/nginx/ssl/${domain}/fullchain.pem";
+    ssl_certificate_key "/etc/nginx/ssl/${domain}/privkey.pem";
+    ssl_trusted_certificate "/etc/nginx/ssl/${domain}/fullchain.pem";
+
+    root /var/www/dfc-site;
+    index index.html;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    location ~* \\.(css|js|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
+        expires 7d;
+        add_header Cache-Control "public, no-transform";
+    }
+}
+# END_SITE_BLOCK
+BLOCK_EOF
+    )
+    local _tmpf; _tmpf=$(mktemp)
+    local _bf; _bf=$(mktemp)
+    printf '%s\n' "$_block" > "$_bf"
+    awk -v blockfile="$_bf" '
+        /^} # ─── end http ───/ {
+            while ((getline line < blockfile) > 0) print line
+            close(blockfile)
+        }
+        { print }
+    ' "${DIR_NGINX}nginx.conf" > "$_tmpf" && cat "$_tmpf" > "${DIR_NGINX}nginx.conf"
+    rm -f "$_tmpf" "$_bf"
+
+    # === Перезапуск nginx ===
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'remnawave-nginx'; then
+        (cd "${DIR_NGINX}" && docker compose up -d >/dev/null 2>&1 && docker exec remnawave-nginx nginx -s reload >/dev/null 2>&1)
+    fi
+
+    echo -e "${GREEN}✔${NC}  Сайт DFC настроен: ${YELLOW}https://${domain}${NC}"
+}
+
+if [[ -n "$SITE_DOMAIN" ]]; then
+    _setup_site "$SITE_DOMAIN"
+    echo
+fi
+
 # ── Открытие портов в ufw ──────────────────────────────────
 if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
     ufw allow 80/tcp >/dev/null 2>&1 || true
@@ -432,6 +550,13 @@ if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "Status: activ
 fi
 
 # ── Сборка и запуск контейнеров ────────────────────────────
+# Копируем сайт DFC если есть about-page рядом с проектом
+if [[ -d "${_SCRIPT_DIR}/../about-page" ]]; then
+    mkdir -p "$INSTALL_DIR/site"
+    cp -a "${_SCRIPT_DIR}/../about-page/." "$INSTALL_DIR/site/"
+    echo -e "${GREEN}✔${NC}  Файлы сайта DFC скопированы."
+fi
+
 printf "${GREEN}▶${NC}  Сборка и запуск контейнеров...\n"
 docker compose -f "$INSTALL_DIR/docker-compose.yml" up -d --build
 if [[ $? -ne 0 ]]; then
@@ -451,6 +576,11 @@ echo -e "${GREEN}✅  Установка завершена!${NC}"
 echo
 echo -e "  ${CYAN}Домен сервера лицензий:${NC}"
 echo -e "  ${YELLOW}https://${LICENSE_DOMAIN}${NC}"
+if [[ -n "$SITE_DOMAIN" ]]; then
+    echo
+    echo -e "  ${CYAN}Сайт DFC Project:${NC}"
+    echo -e "  ${YELLOW}https://${SITE_DOMAIN}${NC}"
+fi
 echo
 echo -e "  ${DARKGRAY}Укажите этот домен в настройках установки клиентов:${NC}"
 echo -e "  ${DARKGRAY}LICENSE_SERVER=\"https://${LICENSE_DOMAIN}\"${NC}"

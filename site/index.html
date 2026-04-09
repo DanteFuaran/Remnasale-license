@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DFC Project — Экосистема управления VPN</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛠️</text></svg>">
+    <style>
+        :root {
+            --bg-dark: #0a1628;
+            --bg-surface: #0d1b30;
+            --bg-card: #111d33;
+            --bg-code: #0d1b30;
+            --primary: #00e5ff;
+            --primary-dim: rgba(0, 229, 255, 0.12);
+            --primary-glow: rgba(0, 229, 255, 0.25);
+            --accent: #1a3a5c;
+            --text: #e0e6ed;
+            --text-dim: #8899aa;
+            --border: #1a3a5c;
+            --success: #4caf50;
+            --warning: #ff9800;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            line-height: 1.65;
+        }
+
+        /* ─── Header & Navigation ─────────── */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            background: rgba(10, 22, 40, 0.92);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-inner {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            height: 64px;
+        }
+
+        .logo {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--primary);
+            letter-spacing: 0.5px;
+            text-decoration: none;
+            margin-right: 48px;
+            white-space: nowrap;
+        }
+
+        .logo span { color: var(--text); font-weight: 400; }
+
+        .tabs {
+            display: flex;
+            gap: 0;
+            height: 64px;
+            align-items: stretch;
+        }
+
+        .tab {
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            color: var(--text-dim);
+            text-decoration: none;
+            font-size: 0.92rem;
+            font-weight: 500;
+            border-bottom: 2px solid transparent;
+            transition: all 0.25s;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .tab:hover {
+            color: var(--primary);
+            background: var(--primary-dim);
+        }
+
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .mobile-menu-btn {
+            display: none;
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--primary);
+            width: 38px;
+            height: 38px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            margin-left: auto;
+        }
+
+        /* ─── Page sections ───────────────── */
+        .page { display: none; }
+        .page.active { display: block; }
+
+        .page-wrapper {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 96px 32px 64px;
+        }
+
+        /* ─── Hero (Главная) ──────────────── */
+        .hero {
+            text-align: center;
+            padding: 80px 0 48px;
+        }
+
+        .hero h1 {
+            font-size: 2.8rem;
+            font-weight: 800;
+            color: var(--text);
+            margin-bottom: 16px;
+        }
+
+        .hero h1 em {
+            font-style: normal;
+            color: var(--primary);
+        }
+
+        .hero-sub {
+            font-size: 1.15rem;
+            color: var(--text-dim);
+            max-width: 600px;
+            margin: 0 auto 40px;
+        }
+
+        .hero-cmd {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 24px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.9rem;
+            color: var(--primary);
+            margin-bottom: 12px;
+        }
+
+        .hero-cmd-copy {
+            background: var(--accent);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+
+        .hero-cmd-copy:hover {
+            color: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .hero-hint {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-top: 8px;
+        }
+
+        /* ─── Product cards (Главная) ─────── */
+        .products {
+            padding: 40px 0;
+        }
+
+        .products-title {
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 32px;
+        }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            transition: border-color 0.25s, transform 0.25s;
+        }
+
+        .card:hover {
+            border-color: var(--primary);
+            transform: translateY(-3px);
+        }
+
+        .card-icon { font-size: 2.2rem; margin-bottom: 12px; }
+        .card-title { font-size: 1.05rem; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+        .card-desc { font-size: 0.85rem; color: var(--text-dim); line-height: 1.55; }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.68rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+
+        .badge-free { background: rgba(76, 175, 80, 0.15); color: var(--success); }
+        .badge-license { background: rgba(255, 152, 0, 0.15); color: var(--warning); }
+
+        /* ─── Features row ────────────────── */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 24px 0 40px;
+        }
+
+        .feature {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .feature-icon { font-size: 2rem; margin-bottom: 8px; }
+        .feature-title { font-size: 0.95rem; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+        .feature-desc { font-size: 0.8rem; color: var(--text-dim); }
+
+        /* ─── Content sections ────────────── */
+        h2 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--primary);
+            margin: 24px 0 10px;
+        }
+
+        p { margin-bottom: 12px; }
+
+        .section {
+            margin-bottom: 48px;
+        }
+
+        /* ─── Code blocks ─────────────────── */
+        .code-block {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin: 12px 0 16px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            position: relative;
+        }
+
+        .code-block code { color: var(--primary); }
+
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: var(--accent);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover { color: var(--primary); border-color: var(--primary); }
+
+        .ic {
+            background: var(--bg-code);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+            color: var(--primary);
+        }
+
+        /* ─── Lists ───────────────────────── */
+        ul, ol { margin: 8px 0 16px 24px; }
+        li { margin-bottom: 6px; }
+        li::marker { color: var(--primary); }
+
+        /* ─── Tables ──────────────────────── */
+        table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; }
+
+        th, td {
+            padding: 10px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        td { font-size: 0.9rem; }
+
+        /* ─── Notes ───────────────────────── */
+        .note {
+            background: var(--primary-dim);
+            border-left: 3px solid var(--primary);
+            border-radius: 0 8px 8px 0;
+            padding: 12px 16px;
+            margin: 16px 0;
+            font-size: 0.9rem;
+        }
+
+        .note-warn {
+            background: rgba(255, 152, 0, 0.1);
+            border-left-color: var(--warning);
+        }
+
+        /* ─── About — product blocks ─────── */
+        .product-block {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px;
+            margin-bottom: 24px;
+        }
+
+        .product-block h3 {
+            margin-top: 0;
+            font-size: 1.2rem;
+        }
+
+        .product-block .tag-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 10px 0 12px;
+        }
+
+        .tag {
+            display: inline-block;
+            background: var(--primary-dim);
+            color: var(--primary);
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        /* ─── Contacts ────────────────────── */
+        .contact-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 20px;
+        }
+
+        .contact-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            transition: border-color 0.25s;
+        }
+
+        .contact-card:hover { border-color: var(--primary); }
+        .contact-icon { font-size: 2.2rem; margin-bottom: 10px; }
+        .contact-title { font-weight: 600; margin-bottom: 6px; }
+        .contact-desc { font-size: 0.85rem; color: var(--text-dim); }
+
+        .contact-card a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .contact-card a:hover { text-decoration: underline; }
+
+        /* ─── Footer ──────────────────────── */
+        .footer {
+            border-top: 1px solid var(--border);
+            padding: 24px 32px;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        /* ─── Responsive ──────────────────── */
+        @media (max-width: 768px) {
+            .tabs { display: none; }
+            .tabs.open {
+                display: flex;
+                flex-direction: column;
+                position: absolute;
+                top: 64px;
+                left: 0;
+                right: 0;
+                background: var(--bg-surface);
+                border-bottom: 1px solid var(--border);
+                z-index: 99;
+            }
+            .tabs.open .tab {
+                height: 48px;
+                border-bottom: none;
+                border-left: 3px solid transparent;
+                padding: 0 24px;
+            }
+            .tabs.open .tab.active { border-left-color: var(--primary); }
+            .mobile-menu-btn { display: flex; align-items: center; justify-content: center; }
+            .hero h1 { font-size: 1.8rem; }
+            .hero-cmd { font-size: 0.75rem; padding: 10px 14px; }
+            .page-wrapper { padding: 80px 16px 40px; }
+            .card-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ─── Header ──────────────────────────────────────────── -->
+<header class="header">
+    <div class="header-inner">
+        <a class="logo" href="#" onclick="switchTab('home')">DFC <span>Project</span></a>
+        <nav class="tabs" id="tabs">
+            <a class="tab active" data-tab="home" onclick="switchTab('home')">Главная</a>
+            <a class="tab" data-tab="about" onclick="switchTab('about')">О проекте</a>
+            <a class="tab" data-tab="install" onclick="switchTab('install')">Установка</a>
+            <a class="tab" data-tab="contacts" onclick="switchTab('contacts')">Контакты</a>
+        </nav>
+        <button class="mobile-menu-btn" onclick="toggleMobile()" aria-label="Меню">☰</button>
+    </div>
+</header>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!-- TAB: Главная                                           -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="page active" id="page-home">
+<div class="page-wrapper">
+
+    <div class="hero">
+        <h1>Управляйте VPN<br>с <em>DFC Project</em></h1>
+        <p class="hero-sub">
+            Единая экосистема для развёртывания, продажи и поддержки VPN-сервисов 
+            на базе Remnawave. Всё из одного терминала.
+        </p>
+        <div class="hero-cmd">
+            <span>bash &lt;(curl -sL https://rs-license.dfc-online.com/api/v1/manager/install)</span>
+            <button class="hero-cmd-copy" onclick="copyText(this, 'bash <(curl -sL https://rs-license.dfc-online.com/api/v1/manager/install)')">📋 Копировать</button>
+        </div>
+        <div class="hero-hint">Ubuntu 22.04 / 24.04 — запуск от root</div>
+    </div>
+
+    <div class="products">
+        <div class="products-title">Что входит в экосистему</div>
+        <div class="card-grid">
+            <div class="card">
+                <div class="card-icon">🛠️</div>
+                <div class="card-title">DFC Manager <span class="badge badge-free">Free</span></div>
+                <div class="card-desc">Терминальный менеджер. Устанавливает, обновляет и контролирует все компоненты.</div>
+            </div>
+            <div class="card">
+                <div class="card-icon">🖥️</div>
+                <div class="card-title">Remnawave Panel <span class="badge badge-free">Free</span></div>
+                <div class="card-desc">VPN-панель управления — серверы, пользователи, конфигурации, статистика.</div>
+            </div>
+            <div class="card">
+                <div class="card-icon">🤖</div>
+                <div class="card-title">Remnasale <span class="badge badge-license">Pro</span></div>
+                <div class="card-desc">Telegram-бот продажи VPN. Автоматические платежи, тарифы, рефералки.</div>
+            </div>
+            <div class="card">
+                <div class="card-icon">💬</div>
+                <div class="card-title">DFC Support <span class="badge badge-license">Pro</span></div>
+                <div class="card-desc">Telegram-бот поддержки. Тикеты, назначения, автозакрытие, уведомления.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="features">
+        <div class="feature">
+            <div class="feature-icon">⚡</div>
+            <div class="feature-title">Одна команда</div>
+            <div class="feature-desc">Установка всей экосистемы за минуты</div>
+        </div>
+        <div class="feature">
+            <div class="feature-icon">🔄</div>
+            <div class="feature-title">Авто-обновления</div>
+            <div class="feature-desc">Все продукты обновляются через менеджер</div>
+        </div>
+        <div class="feature">
+            <div class="feature-icon">🔒</div>
+            <div class="feature-title">Лицензирование</div>
+            <div class="feature-desc">Привязка к IP, безопасная дистрибуция</div>
+        </div>
+        <div class="feature">
+            <div class="feature-icon">🐳</div>
+            <div class="feature-title">Docker</div>
+            <div class="feature-desc">Полная контейнеризация каждого компонента</div>
+        </div>
+    </div>
+
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!-- TAB: О проекте                                         -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="page" id="page-about">
+<div class="page-wrapper">
+
+    <h2>О проекте DFC</h2>
+    <p>DFC Project — экосистема из четырёх продуктов для запуска полноценного VPN-сервиса с продажами и поддержкой клиентов. Все компоненты Docker-изированы и управляются из терминала.</p>
+
+    <!-- DFC Manager -->
+    <div class="product-block">
+        <h3>🛠️ DFC Manager</h3>
+        <div class="tag-row">
+            <span class="tag">Bash</span>
+            <span class="tag">Бесплатный</span>
+            <span class="tag">CLI / TUI</span>
+        </div>
+        <p>Центральный терминальный менеджер — точка входа во всю экосистему. Запускается командой <span class="ic">dfc</span> или <span class="ic">rw</span>.</p>
+        <p><b>Что умеет:</b></p>
+        <ul>
+            <li>Установка, удаление и обновление Remnawave Panel, Remnasale, DFC Support</li>
+            <li>Управление Docker-контейнерами: старт, стоп, рестарт, логи</li>
+            <li>Настройка ноды Remnawave</li>
+            <li>Резервное копирование и восстановление</li>
+            <li>Установка selfsteal-шаблонов для маскировки</li>
+            <li>Управление лицензионными ключами</li>
+            <li>Автообновление при каждом запуске</li>
+        </ul>
+    </div>
+
+    <!-- Remnawave Panel -->
+    <div class="product-block">
+        <h3>🖥️ Remnawave Panel</h3>
+        <div class="tag-row">
+            <span class="tag">Web UI</span>
+            <span class="tag">Бесплатный</span>
+            <span class="tag">Docker</span>
+        </div>
+        <p>VPN-панель управления на базе Remnawave. Предоставляет веб-интерфейс для работы с серверами, пользователями и подписками.</p>
+        <p><b>Что умеет:</b></p>
+        <ul>
+            <li>Управление VPN-серверами и нодами</li>
+            <li>Создание и управление пользователями</li>
+            <li>Генерация конфигураций и ключей</li>
+            <li>Статистика трафика и подключений</li>
+            <li>Страница подписки для клиентов</li>
+        </ul>
+    </div>
+
+    <!-- Remnasale -->
+    <div class="product-block">
+        <h3>🤖 Remnasale</h3>
+        <div class="tag-row">
+            <span class="tag">Python 3.12</span>
+            <span class="tag">FastAPI</span>
+            <span class="tag">aiogram 3</span>
+            <span class="tag">PostgreSQL</span>
+            <span class="tag">Лицензия</span>
+        </div>
+        <p>Telegram-бот для автоматической продажи VPN-подписок. Полная интеграция с Remnawave Panel — после оплаты клиент получает конфиг автоматически.</p>
+        <p><b>Что умеет:</b></p>
+        <ul>
+            <li>Приём платежей: YooKassa, CryptoBot, Robokassa, ЮMoney, Stars и другие</li>
+            <li>Автоматическая выдача VPN-конфигов</li>
+            <li>Мультиязычность: русский, украинский, английский, немецкий</li>
+            <li>Гибкие тарифные планы и промокоды</li>
+            <li>Реферальная система с вознаграждениями</li>
+            <li>Статистика продаж и аналитика</li>
+            <li>Кастомизация внешнего вида через <span class="ic">.env</span> и баннеры</li>
+        </ul>
+        <div class="note note-warn">⚠️ Требуется лицензионный ключ. Один ключ = один IP для Remnasale.</div>
+    </div>
+
+    <!-- DFC Support -->
+    <div class="product-block">
+        <h3>💬 DFC Support</h3>
+        <div class="tag-row">
+            <span class="tag">Python 3.12</span>
+            <span class="tag">aiogram 3</span>
+            <span class="tag">Лицензия</span>
+        </div>
+        <p>Telegram-бот для тикет-системы поддержки. Пользователи пишут боту, обращения пересылаются в группу операторов.</p>
+        <p><b>Что умеет:</b></p>
+        <ul>
+            <li>Создание и отслеживание тикетов через Telegram</li>
+            <li>Пересылка обращений в группу поддержки</li>
+            <li>Назначение тикетов на конкретных операторов</li>
+            <li>Автозакрытие по настраиваемому таймауту неактивности</li>
+            <li>Уведомления о новых и обновлённых тикетах</li>
+        </ul>
+        <div class="note note-warn">⚠️ Требуется лицензионный ключ. Один ключ = один IP для DFC Support.</div>
+    </div>
+
+    <!-- Architecture -->
+    <div class="section">
+        <h3>Архитектура</h3>
+        <div class="code-block">
+<code>Сервер клиента
+├── DFC Manager          (bash CLI, /usr/local/dfc-manager/)
+├── Remnawave Panel      (Docker, /opt/remnawave/)
+├── Remnasale            (Docker, /opt/remnasale/)
+├── DFC Support          (Docker, /opt/dfc-support-bot/)
+└── Nginx                (reverse proxy, SSL)
+        │
+        │  API: проверка лицензий, скачивание обновлений
+        ▼
+License Server           (Docker, центральный сервер)</code>
+        </div>
+    </div>
+
+    <!-- Licensing -->
+    <div class="section">
+        <h3>Система лицензий</h3>
+        <table>
+            <tr><th>Продукт</th><th>Стоимость</th><th>Привязка к IP</th></tr>
+            <tr><td>DFC Manager</td><td>Бесплатно</td><td>Нет</td></tr>
+            <tr><td>Remnawave Panel</td><td>Бесплатно</td><td>Нет</td></tr>
+            <tr><td>Remnasale</td><td>По лицензии</td><td>Да — отдельный IP</td></tr>
+            <tr><td>DFC Support</td><td>По лицензии</td><td>Да — отдельный IP</td></tr>
+        </table>
+        <div class="note">
+            💡 Один ключ может активировать Remnasale на сервере A и DFC Support на сервере B, 
+            но два Remnasale на разных серверах — нельзя.
+        </div>
+    </div>
+
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!-- TAB: Установка                                         -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="page" id="page-install">
+<div class="page-wrapper">
+
+    <h2>Установка</h2>
+
+    <!-- Шаг 1 -->
+    <div class="section">
+        <h3>Шаг 1 — DFC Manager</h3>
+        <p>DFC Manager устанавливается одной командой. Лицензия не нужна — менеджер бесплатный.</p>
+        <div class="code-block">
+            <button class="copy-btn" onclick="copyCode(this)">📋 Копировать</button>
+            <code>bash &lt;(curl -sL https://rs-license.dfc-online.com/api/v1/manager/install)</code>
+        </div>
+        <p>Требования: Ubuntu 22.04 / 24.04, root-доступ, Docker с Compose v2.</p>
+        <p>После установки запускайте менеджер командами:</p>
+        <div class="code-block">
+            <code>dfc      # Запуск DFC Manager
+rw       # Алиас</code>
+        </div>
+    </div>
+
+    <!-- Шаг 2 -->
+    <div class="section">
+        <h3>Шаг 2 — Remnawave Panel</h3>
+        <p>Панель устанавливается через DFC Manager без лицензии:</p>
+        <ol>
+            <li>Запустите <span class="ic">dfc</span></li>
+            <li>Выберите <b>«Remnawave Panel»</b> → <b>«Установить»</b></li>
+            <li>Следуйте инструкциям (домен, SSL настроятся автоматически)</li>
+        </ol>
+    </div>
+
+    <!-- Шаг 3 -->
+    <div class="section">
+        <h3>Шаг 3 — Remnasale (бот продаж)</h3>
+        <p>Для установки нужен лицензионный ключ. Получите его у администратора через Telegram-бот лицензий.</p>
+        <ol>
+            <li>В DFC Manager откройте <b>«Лицензионный ключ 🔑»</b> → введите ключ</li>
+            <li>Выберите <b>«Remnasale 🤖»</b> → <b>«Установить»</b></li>
+            <li>Менеджер проверит лицензию, привяжет IP сервера и начнёт установку</li>
+        </ol>
+        <div class="note note-warn">
+            ⚠️ При первой установке IP сервера привязывается к ключу. Перенос на другой сервер — через сброс IP у администратора.
+        </div>
+    </div>
+
+    <!-- Шаг 4 -->
+    <div class="section">
+        <h3>Шаг 4 — DFC Support (бот поддержки)</h3>
+        <ol>
+            <li>Убедитесь, что лицензионный ключ уже введён</li>
+            <li>Выберите <b>«DFC Support 💬»</b> → <b>«Установить»</b></li>
+            <li>Укажите: токен бота, ID группы поддержки, дней неактивности для автозакрытия</li>
+        </ol>
+    </div>
+
+    <!-- Обновления -->
+    <div class="section">
+        <h3>Обновление продуктов</h3>
+        <p><b>DFC Manager</b> обновляется автоматически при каждом запуске.</p>
+        <p><b>Remnasale и DFC Support:</b></p>
+        <ol>
+            <li>Запустите <span class="ic">dfc</span></li>
+            <li>Выберите продукт → <b>«Обновить»</b></li>
+            <li>Менеджер проверит лицензию, скачает новую версию, сохранит конфиг и пересоберёт контейнеры</li>
+        </ol>
+        <div class="note">💡 Файлы <span class="ic">.env</span> и данные пользователей сохраняются автоматически.</div>
+    </div>
+
+    <!-- Команды -->
+    <div class="section">
+        <h3>Справка по командам</h3>
+        <table>
+            <tr><th>Команда</th><th>Описание</th></tr>
+            <tr><td><span class="ic">dfc</span></td><td>Запуск DFC Manager</td></tr>
+            <tr><td><span class="ic">rw</span></td><td>Алиас для dfc</td></tr>
+            <tr><td><span class="ic">rl</span></td><td>Консоль License Server (на сервере лицензий)</td></tr>
+        </table>
+
+        <h3>Расположение файлов</h3>
+        <table>
+            <tr><th>Продукт</th><th>Директория</th></tr>
+            <tr><td>DFC Manager</td><td><span class="ic">/usr/local/dfc-manager/</span></td></tr>
+            <tr><td>Remnawave Panel</td><td><span class="ic">/opt/remnawave/</span></td></tr>
+            <tr><td>Remnasale</td><td><span class="ic">/opt/remnasale/</span></td></tr>
+            <tr><td>DFC Support</td><td><span class="ic">/opt/dfc-support-bot/</span></td></tr>
+        </table>
+    </div>
+
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!-- TAB: Контакты                                          -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="page" id="page-contacts">
+<div class="page-wrapper">
+
+    <h2>Контакты</h2>
+    <p>Связаться с нами можно через Telegram. Мы поможем с настройкой, решим вопросы по лицензиям и поддержим в работе с экосистемой.</p>
+
+    <div class="contact-cards">
+        <div class="contact-card">
+            <div class="contact-icon">🔑</div>
+            <div class="contact-title">Бот лицензирования</div>
+            <div class="contact-desc">Покупка лицензий, активация ключей, управление подписками</div>
+        </div>
+        <div class="contact-card">
+            <div class="contact-icon">💬</div>
+            <div class="contact-title">Техническая поддержка</div>
+            <div class="contact-desc">Помощь с установкой, настройкой и обновлениями</div>
+        </div>
+        <div class="contact-card">
+            <div class="contact-icon">📢</div>
+            <div class="contact-title">Канал обновлений</div>
+            <div class="contact-desc">Новости, релизы и анонсы новых функций</div>
+        </div>
+    </div>
+
+    <div class="section" style="margin-top: 40px;">
+        <h3>Часто задаваемые вопросы</h3>
+
+        <p><b>Что делать, если ключ не принимается?</b></p>
+        <ul>
+            <li>Проверьте правильность: 40 символов, только a-f и 0-9</li>
+            <li>Убедитесь, что ключ включает нужный продукт (Remnasale / DFC Support)</li>
+            <li>Если IP уже привязан к другому серверу — обратитесь к администратору для сброса</li>
+        </ul>
+
+        <p><b>Можно ли использовать один ключ на двух серверах?</b></p>
+        <p>Один ключ активирует каждый продукт на своём IP. Remnasale на сервере A + DFC Support на сервере B — можно. Два Remnasale на разных серверах — нельзя.</p>
+
+        <p><b>Как перенести бот на другой сервер?</b></p>
+        <ol>
+            <li>Создайте бэкап через DFC Manager</li>
+            <li>Попросите администратора сбросить IP для продукта</li>
+            <li>На новом сервере установите DFC Manager → введите ключ → установите продукт → восстановите бэкап</li>
+        </ol>
+    </div>
+
+</div>
+</div>
+
+<!-- ─── Footer ──────────────────────────────────────────── -->
+<footer class="footer">
+    &copy; 2024–2026 DFC Project. Все права защищены.
+</footer>
+
+<script>
+function switchTab(tab) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('page-' + tab).classList.add('active');
+    document.querySelector('[data-tab="' + tab + '"]').classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Close mobile menu
+    document.getElementById('tabs').classList.remove('open');
+    // Update URL hash without scroll
+    history.replaceState(null, '', '#' + tab);
+}
+
+function toggleMobile() {
+    document.getElementById('tabs').classList.toggle('open');
+}
+
+// Restore tab from hash
+(function() {
+    var hash = location.hash.replace('#', '');
+    if (['home', 'about', 'install', 'contacts'].indexOf(hash) !== -1) {
+        switchTab(hash);
+    }
+})();
+
+function copyCode(btn) {
+    var code = btn.parentElement.querySelector('code').textContent;
+    navigator.clipboard.writeText(code).then(function() {
+        btn.textContent = '✅ Скопировано';
+        setTimeout(function() { btn.textContent = '📋 Копировать'; }, 2000);
+    });
+}
+
+function copyText(btn, text) {
+    navigator.clipboard.writeText(text).then(function() {
+        btn.textContent = '✅ Скопировано';
+        setTimeout(function() { btn.textContent = '📋 Копировать'; }, 2000);
+    });
+}
+</script>
+
+</body>
+</html>
