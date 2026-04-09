@@ -89,6 +89,8 @@ class LicenseDB:
                 await db.execute("ALTER TABLE servers ADD COLUMN is_muted INTEGER DEFAULT 0")
             if "owner_telegram_id" not in columns:
                 await db.execute("ALTER TABLE servers ADD COLUMN owner_telegram_id TEXT DEFAULT ''")
+            if "donate_muted" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN donate_muted INTEGER DEFAULT 0")
 
             # Платёжные шлюзы
             await db.execute("""
@@ -297,6 +299,16 @@ class LicenseDB:
             await db.commit()
         return await self.get_server(server_id)
 
+    async def toggle_donate_mute(self, server_id: int) -> Optional[dict]:
+        server = await self.get_server(server_id)
+        if not server:
+            return None
+        new_val = 0 if server.get("donate_muted") else 1
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE servers SET donate_muted = ? WHERE id = ?", (new_val, server_id))
+            await db.commit()
+        return await self.get_server(server_id)
+
     async def verify_license(self, key: str, server_ip: str) -> dict:
         server = await self.get_server_by_key(key)
 
@@ -339,6 +351,7 @@ class LicenseDB:
         result = {"valid": True, "offline_grace_days": offline_grace_days}
         if server["expires_at"]:
             result["expires_at"] = server["expires_at"]
+        result["donate_muted"] = bool(server.get("donate_muted"))
         return result
 
     async def check_key_valid(self, key: str) -> dict:

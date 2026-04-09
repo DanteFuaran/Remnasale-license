@@ -26,11 +26,56 @@ def settings_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🆘 Помощь", callback_data="settings_support_url"),
             InlineKeyboardButton(text="👥 Сообщество", callback_data="settings_community_url"),
         ],
-        [InlineKeyboardButton(text="💳 Платёжные системы", callback_data="settings_payments")],
+        [
+            InlineKeyboardButton(text="💳 Платёжные системы", callback_data="settings_payments"),
+            InlineKeyboardButton(text="💝 Донаты", callback_data="settings_donate"),
+        ],
         [InlineKeyboardButton(text="💾 Управление БД", callback_data="backup_menu")],
         [InlineKeyboardButton(text="🎨 Брендирование", callback_data="branding_menu")],
         [
             InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+        ],
+    ])
+
+
+def donate_kb(enabled: bool, btn1: dict, btn2: dict, btn3: dict) -> InlineKeyboardMarkup:
+    toggle_text = "🟢 Включен" if enabled else "🔴 Выключен"
+    rows = [
+        [InlineKeyboardButton(text=toggle_text, callback_data="donate_toggle")],
+        [InlineKeyboardButton(text="📝 Настроить сообщение", callback_data="donate_edit_message")],
+        [
+            InlineKeyboardButton(
+                text=f"{'🟢' if btn1.get('enabled') else '🔴'} {btn1.get('label') or 'Кнопка 1'}",
+                callback_data="donate_btn_1",
+            ),
+            InlineKeyboardButton(
+                text=f"{'🟢' if btn2.get('enabled') else '🔴'} {btn2.get('label') or 'Кнопка 2'}",
+                callback_data="donate_btn_2",
+            ),
+            InlineKeyboardButton(
+                text=f"{'🟢' if btn3.get('enabled') else '🔴'} {btn3.get('label') or 'Кнопка 3'}",
+                callback_data="donate_btn_3",
+            ),
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
+        ],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def donate_btn_kb(idx: int, btn: dict) -> InlineKeyboardMarkup:
+    toggle = "🟢 Включен" if btn.get("enabled") else "🔴 Выключен"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=toggle, callback_data=f"donate_btn_{idx}_toggle")],
+        [
+            InlineKeyboardButton(text="✏️ Название", callback_data=f"donate_btn_{idx}_label"),
+            InlineKeyboardButton(text="🔗 Ссылка", callback_data=f"donate_btn_{idx}_url"),
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_donate", style="primary"),
             InlineKeyboardButton(text="🏠 Главное меню", callback_data="main", style="primary"),
         ],
     ])

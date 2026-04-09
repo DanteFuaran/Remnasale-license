@@ -65,3 +65,15 @@ class AutoBackupChatIdState(StatesGroup):
 
 class SettingsLicenseHostState(StatesGroup):
     waiting_host = State()
+
+
+class DonateMessageState(StatesGroup):
+    waiting_text = State()
+
+
+class DonateBtnLabelState(StatesGroup):
+    waiting_label = State()
+
+
+class DonateBtnUrlState(StatesGroup):
+    waiting_url = State()

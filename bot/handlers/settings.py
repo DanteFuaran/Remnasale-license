@@ -10,9 +10,11 @@ from bot.states import (
     SettingsIntervalState, SettingsOfflineGraceState,
     SettingsSupportUrlState, SettingsCommunityUrlState,
     BrandingBannerState, SettingsLicenseHostState,
+    DonateMessageState, DonateBtnLabelState, DonateBtnUrlState,
 )
 from bot.keyboards.settings import (
     settings_kb, sync_kb, setting_edit_kb, setting_edit_pending_kb, branding_kb,
+    donate_kb, donate_btn_kb,
 )
 
 router = Router()
@@ -361,6 +363,269 @@ async def _auto_delete_s(bot, chat_id: int, message_id: int, delay: int = 5):
         await bot.delete_message(chat_id, message_id)
     except Exception:
         pass
+
+
+async def _auto_delete_s(bot, chat_id: int, message_id: int, delay: int = 5):
+    await asyncio.sleep(delay)
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
+
+
+# ── Донаты ─────────────────────────────────────────────────────────────────────
+
+async def _get_donate_btn(db: Database, idx: int) -> dict:
+    return {
+        "enabled": (await db.get_setting(f"donate_btn{idx}_enabled")) == "1",
+        "label": await db.get_setting(f"donate_btn{idx}_label"),
+        "url": await db.get_setting(f"donate_btn{idx}_url"),
+    }
+
+
+async def _donate_menu(target, state: FSMContext, db: Database):
+    await state.clear()
+    enabled = (await db.get_setting("donate_enabled")) == "1"
+    btn1 = await _get_donate_btn(db, 1)
+    btn2 = await _get_donate_btn(db, 2)
+    btn3 = await _get_donate_btn(db, 3)
+    msg = await db.get_setting("donate_message")
+    msg_preview = (msg[:80] + "…") if msg and len(msg) > 80 else (msg or "Не задано")
+    text = (
+        f"💝 <b>Настройка донатов</b>\n\n"
+        f"Сообщение: {msg_preview}"
+    )
+    await show(target, text, reply_markup=donate_kb(enabled, btn1, btn2, btn3), db=db)
+
+
+@router.callback_query(F.data == "settings_donate")
+async def cb_settings_donate(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await _donate_menu(call, state, db)
+    await call.answer()
+
+
+@router.callback_query(F.data == "donate_toggle")
+async def cb_donate_toggle(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    current = (await db.get_setting("donate_enabled")) == "1"
+    await db.set_setting("donate_enabled", "0" if current else "1")
+    await _donate_menu(call, state, db)
+    await call.answer()
+
+
+@router.callback_query(F.data == "donate_edit_message")
+async def cb_donate_edit_message(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    current = await db.get_setting("donate_message")
+    preview = current or "<i>не задано</i>"
+    await state.set_state(DonateMessageState.waiting_text)
+    await state.update_data(prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
+    text = (
+        "📝 <b>Настройка сообщения донатов</b>\n\n"
+        f"<blockquote>{preview}</blockquote>\n\n"
+        "ℹ️ <i>Отправьте новый текст сообщения. Поддерживается HTML-разметка.</i>"
+    )
+    kb = setting_edit_kb("donate_clear_message", "settings_donate")
+    await show(call, text, reply_markup=kb, db=db)
+    await call.answer()
+
+
+@router.callback_query(F.data == "donate_clear_message")
+async def cb_donate_clear_message(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await db.set_setting("donate_message", "")
+    await state.clear()
+    await _donate_menu(call, state, db)
+    await call.answer()
+
+
+@router.message(DonateMessageState.waiting_text)
+async def on_donate_message_input(message: Message, state: FSMContext, db: Database):
+    if not _is_admin(message.from_user.id):
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    text = message.text or message.caption or ""
+    await db.set_setting("donate_message", text.strip())
+    data = await state.get_data()
+    await state.clear()
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    if prompt_msg_id:
+        from bot.banner import edit_prompt
+        enabled = (await db.get_setting("donate_enabled")) == "1"
+        btn1 = await _get_donate_btn(db, 1)
+        btn2 = await _get_donate_btn(db, 2)
+        btn3 = await _get_donate_btn(db, 3)
+        msg = await db.get_setting("donate_message")
+        msg_preview = (msg[:80] + "…") if msg and len(msg) > 80 else (msg or "Не задано")
+        await edit_prompt(message.bot, chat_id, prompt_msg_id,
+                          f"💝 <b>Настройка донатов</b>\n\nСообщение: {msg_preview}",
+                          reply_markup=donate_kb(enabled, btn1, btn2, btn3), db=db)
+    else:
+        note = await message.answer("✅ Сообщение обновлено")
+        asyncio.create_task(_auto_delete_s(message.bot, message.chat.id, note.message_id))
+
+
+# ── Кнопки донатов ─────────────────────────────────────────────────────────────
+
+async def _show_donate_btn(target, state: FSMContext, db: Database, idx: int):
+    await state.clear()
+    btn = await _get_donate_btn(db, idx)
+    label = btn.get("label") or "Не задано"
+    url = btn.get("url") or "Не задана"
+    text = (
+        f"🔘 <b>Кнопка {idx}</b>\n\n"
+        f"Название: {label}\n"
+        f"Ссылка: {url}"
+    )
+    await show(target, text, reply_markup=donate_btn_kb(idx, btn), db=db)
+
+
+@router.callback_query(F.data.in_({"donate_btn_1", "donate_btn_2", "donate_btn_3"}))
+async def cb_donate_btn(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    idx = int(call.data[-1])
+    await _show_donate_btn(call, state, db, idx)
+    await call.answer()
+
+
+@router.callback_query(F.data.in_({"donate_btn_1_toggle", "donate_btn_2_toggle", "donate_btn_3_toggle"}))
+async def cb_donate_btn_toggle(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    idx = int(call.data.split("_")[2])
+    key = f"donate_btn{idx}_enabled"
+    current = (await db.get_setting(key)) == "1"
+    await db.set_setting(key, "0" if current else "1")
+    await _show_donate_btn(call, state, db, idx)
+    await call.answer()
+
+
+@router.callback_query(F.data.in_({"donate_btn_1_label", "donate_btn_2_label", "donate_btn_3_label"}))
+async def cb_donate_btn_label(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    idx = int(call.data.split("_")[2])
+    await state.set_state(DonateBtnLabelState.waiting_label)
+    await state.update_data(btn_idx=idx, prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
+    current = await db.get_setting(f"donate_btn{idx}_label")
+    text = (
+        f"✏️ <b>Название кнопки {idx}</b>\n\n"
+        f"Текущее: {current or '<i>не задано</i>'}\n\n"
+        "ℹ️ <i>Введите новое название кнопки.</i>"
+    )
+    kb = setting_edit_kb(f"donate_btn_{idx}_clear_label", f"donate_btn_{idx}")
+    await show(call, text, reply_markup=kb, db=db)
+    await call.answer()
+
+
+@router.callback_query(F.data.in_({"donate_btn_1_clear_label", "donate_btn_2_clear_label", "donate_btn_3_clear_label"}))
+async def cb_donate_btn_clear_label(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    idx = int(call.data.split("_")[2])
+    await db.set_setting(f"donate_btn{idx}_label", "")
+    await state.clear()
+    await _show_donate_btn(call, state, db, idx)
+    await call.answer()
+
+
+@router.message(DonateBtnLabelState.waiting_label)
+async def on_donate_btn_label_input(message: Message, state: FSMContext, db: Database):
+    if not _is_admin(message.from_user.id):
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    data = await state.get_data()
+    idx = data.get("btn_idx", 1)
+    await db.set_setting(f"donate_btn{idx}_label", message.text.strip())
+    await state.clear()
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    if prompt_msg_id:
+        from bot.banner import edit_prompt
+        btn = await _get_donate_btn(db, idx)
+        label = btn.get("label") or "Не задано"
+        url = btn.get("url") or "Не задана"
+        await edit_prompt(message.bot, chat_id, prompt_msg_id,
+                          f"🔘 <b>Кнопка {idx}</b>\n\nНазвание: {label}\nСсылка: {url}",
+                          reply_markup=donate_btn_kb(idx, btn), db=db)
+    else:
+        note = await message.answer("✅ Название обновлено")
+        asyncio.create_task(_auto_delete_s(message.bot, message.chat.id, note.message_id))
+
+
+@router.callback_query(F.data.in_({"donate_btn_1_url", "donate_btn_2_url", "donate_btn_3_url"}))
+async def cb_donate_btn_url(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    idx = int(call.data.split("_")[2])
+    await state.set_state(DonateBtnUrlState.waiting_url)
+    await state.update_data(btn_idx=idx, prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
+    current = await db.get_setting(f"donate_btn{idx}_url")
+    text = (
+        f"🔗 <b>Ссылка кнопки {idx}</b>\n\n"
+        f"Текущая: {current or '<i>не задана</i>'}\n\n"
+        "ℹ️ <i>Введите URL ссылки для кнопки.</i>"
+    )
+    kb = setting_edit_kb(f"donate_btn_{idx}_clear_url", f"donate_btn_{idx}")
+    await show(call, text, reply_markup=kb, db=db)
+    await call.answer()
+
+
+@router.callback_query(F.data.in_({"donate_btn_1_clear_url", "donate_btn_2_clear_url", "donate_btn_3_clear_url"}))
+async def cb_donate_btn_clear_url(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    idx = int(call.data.split("_")[2])
+    await db.set_setting(f"donate_btn{idx}_url", "")
+    await state.clear()
+    await _show_donate_btn(call, state, db, idx)
+    await call.answer()
+
+
+@router.message(DonateBtnUrlState.waiting_url)
+async def on_donate_btn_url_input(message: Message, state: FSMContext, db: Database):
+    if not _is_admin(message.from_user.id):
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    data = await state.get_data()
+    idx = data.get("btn_idx", 1)
+    raw = message.text.strip()
+    if not raw.startswith("http"):
+        raw = "https://" + raw
+    await db.set_setting(f"donate_btn{idx}_url", raw)
+    await state.clear()
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    if prompt_msg_id:
+        from bot.banner import edit_prompt
+        btn = await _get_donate_btn(db, idx)
+        label = btn.get("label") or "Не задано"
+        url_val = btn.get("url") or "Не задана"
+        await edit_prompt(message.bot, chat_id, prompt_msg_id,
+                          f"🔘 <b>Кнопка {idx}</b>\n\nНазвание: {label}\nСсылка: {url_val}",
+                          reply_markup=donate_btn_kb(idx, btn), db=db)
+    else:
+        note = await message.answer("✅ Ссылка обновлена")
+        asyncio.create_task(_auto_delete_s(message.bot, message.chat.id, note.message_id))
 
 
 @router.callback_query(F.data == "branding_menu")

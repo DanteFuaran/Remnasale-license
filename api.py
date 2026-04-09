@@ -79,6 +79,25 @@ async def handle_verify(request: web.Request) -> web.Response:
     if license_host:
         result["license_host"] = license_host
 
+    support_url = await db.get_setting("support_url")
+    if support_url:
+        result["support_url"] = support_url
+
+    # Настройки донатов
+    donate_enabled = (await db.get_setting("donate_enabled")) == "1"
+    donate_muted = result.get("donate_muted", False)
+    result["donate"] = {"enabled": donate_enabled and not donate_muted}
+    if donate_enabled:
+        result["donate"]["message"] = await db.get_setting("donate_message")
+        buttons = []
+        for i in range(1, 4):
+            if (await db.get_setting(f"donate_btn{i}_enabled")) == "1":
+                label = await db.get_setting(f"donate_btn{i}_label")
+                url = await db.get_setting(f"donate_btn{i}_url")
+                if label and url:
+                    buttons.append({"label": label, "url": url})
+        result["donate"]["buttons"] = buttons
+
     status = 200 if result["valid"] else 403
     return web.json_response(result, status=status)
 

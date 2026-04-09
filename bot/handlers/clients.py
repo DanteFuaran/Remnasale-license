@@ -367,6 +367,22 @@ async def cb_mute(call: CallbackQuery, state: FSMContext, db: Database):
     await call.answer("🔊 Разглушён" if not server.get("is_muted") else "🔇 Заглушён")
 
 
+# ── Донаты вкл/выкл для клиента ───────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("dmute:"))
+async def cb_donate_mute(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await _clear_confirm(state, call.bot, call.message.chat.id)
+    server_id = int(call.data.split(":")[1])
+    server = await db.toggle_donate_mute(server_id)
+    if not server:
+        await _notify(call, "Сервер не найден")
+        return
+    await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
+    await call.answer()
+
+
 # ── Удалить ────────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("del:"))

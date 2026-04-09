@@ -90,6 +90,8 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
     toggle_text = "⏸ Приостановить" if is_active else "▶️ Возобновить"
     blk_text = "🔓 Разблокировать" if is_blacklisted else "🚫 Заблокировать"
     mute_text = "🔊 Разглушить" if is_muted else "🔇 Заглушить"
+    donate_muted = server.get("donate_muted", 0)
+    donate_text = "🔴 Донаты" if donate_muted else "🟢 Донаты"
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔑 Показать ключ", callback_data=f"showkey:{sid}")],
@@ -102,7 +104,10 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="✏️ Переименовать", callback_data=f"ren:{sid}"),
             InlineKeyboardButton(text="🔓 Сбросить IP",  callback_data=f"rip:{sid}"),
         ],
-        [InlineKeyboardButton(text=mute_text, callback_data=f"mute:{sid}")],
+        [
+            InlineKeyboardButton(text=mute_text, callback_data=f"mute:{sid}"),
+            InlineKeyboardButton(text=donate_text, callback_data=f"dmute:{sid}"),
+        ],
         [
             InlineKeyboardButton(text=blk_text,       callback_data=f"blk:{sid}", style="danger"),
             InlineKeyboardButton(text="🗑 Удалить",    callback_data=f"del:{sid}", style="danger"),
