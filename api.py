@@ -285,19 +285,15 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
                         owner_username = user.get("username")
                 except Exception:
                     pass
-            # Формируем строку имени с ссылкой
-            if owner_name != "—" and owner_username:
-                owner_line = f"{owner_name} (https://t.me/{owner_username})"
-            else:
-                owner_line = owner_name
+            owner_line = owner_name
 
             text = (
                 f"🟢 <b>Успешное подключение!</b>\n\n"
                 f"Сервер: <code>{server_name}</code>\n"
                 f"Имя:  {owner_line}\n"
                 f"Телеграм ID: <code>{display_tg_id or '—'}</code>\n"
-                f"IP: <code>{server_ip or '—'}</code>\n"
-                f"Бот: {('@' + bot_username) if bot_username else '—'}"
+                f"Бот: {('@' + bot_username) if bot_username else '—'}\n"
+                f"IP: <code>{server_ip or '—'}</code>"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline", style="success")],
@@ -319,21 +315,18 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
                         owner_username = user.get("username")
                 except Exception:
                     pass
-            if owner_name != "—" and owner_username:
-                owner_line = f"{owner_name} (https://t.me/{owner_username})"
-            else:
-                owner_line = owner_name
+            owner_line = owner_name
 
             text = (
                 f"🔴 <b>Успешное удаление!</b>\n\n"
                 f"Сервер: <code>{server_name}</code>\n"
                 f"Имя:  {owner_line}\n"
                 f"Телеграм ID: <code>{display_tg_id or '—'}</code>\n"
-                f"IP: <code>{server_ip or '—'}</code>\n"
-                f"Бот: {('@' + bot_username) if bot_username else '—'}"
+                f"Бот: {('@' + bot_username) if bot_username else '—'}\n"
+                f"IP: <code>{server_ip or '—'}</code>"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline", style="danger")],
+                [InlineKeyboardButton(text="❌ Закрыть", callback_data="dismiss_notify_offline", style="danger")],
             ])
         elif event == "online":
             text = (
@@ -342,7 +335,7 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
                 f"IP: <code>{server_ip}</code>"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline")],
+                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline", style="success")],
             ])
         else:
             text = (
