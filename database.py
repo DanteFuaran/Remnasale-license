@@ -805,6 +805,9 @@ class LicenseDB:
         for s in servers:
             if not s.get("is_active") or s.get("is_blacklisted"):
                 continue
+            # Нет привязанного IP — Remnasale ещё не устанавливалась, не мониторим
+            if not s.get("server_ip"):
+                continue
             last_check = s.get("last_check_at")
             # Никогда не делал check-in — сервер ещё не запускался, не мониторим
             if not last_check:
