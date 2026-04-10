@@ -304,10 +304,32 @@ class LicenseDB:
         return await self.get_server(server_id)
 
     async def update_bot_info(self, license_key: str, bot_token: str, bot_username: str, dev_ids: str, remnasale_version: str = "", owner_telegram_id: str = ""):
+        # Обновляем только непустые поля — чтобы не затирать данные при частичных репортах
+        # (например, когда бот останавливается и часть данных уже недоступна)
+        fields = []
+        values = []
+        if bot_token:
+            fields.append("bot_token = ?")
+            values.append(bot_token)
+        if bot_username:
+            fields.append("bot_username = ?")
+            values.append(bot_username)
+        if dev_ids:
+            fields.append("dev_telegram_ids = ?")
+            values.append(dev_ids)
+        if remnasale_version:
+            fields.append("remnasale_version = ?")
+            values.append(remnasale_version)
+        if owner_telegram_id:
+            fields.append("owner_telegram_id = ?")
+            values.append(owner_telegram_id)
+        if not fields:
+            return
+        values.append(license_key)
         async with aiosqlite.connect(self.path) as db:
             await db.execute(
-                "UPDATE servers SET bot_token = ?, bot_username = ?, dev_telegram_ids = ?, remnasale_version = ?, owner_telegram_id = ? WHERE license_key = ?",
-                (bot_token, bot_username, dev_ids, remnasale_version, owner_telegram_id, license_key),
+                f"UPDATE servers SET {', '.join(fields)} WHERE license_key = ?",
+                tuple(values),
             )
             await db.commit()
 
