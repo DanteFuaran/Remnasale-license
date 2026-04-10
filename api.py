@@ -285,7 +285,10 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
                         owner_username = user.get("username")
                 except Exception:
                     pass
-            owner_line = owner_name
+            if owner_name != "—" and owner_username:
+                owner_line = f"<a href=\"https://t.me/{owner_username}\">{owner_name}</a>"
+            else:
+                owner_line = owner_name
 
             text = (
                 f"🟢 <b>Успешное подключение!</b>\n\n"
@@ -315,7 +318,10 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
                         owner_username = user.get("username")
                 except Exception:
                     pass
-            owner_line = owner_name
+            if owner_name != "—" and owner_username:
+                owner_line = f"<a href=\"https://t.me/{owner_username}\">{owner_name}</a>"
+            else:
+                owner_line = owner_name
 
             text = (
                 f"🔴 <b>Успешное удаление!</b>\n\n"
@@ -347,7 +353,7 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
                 [InlineKeyboardButton(text="❌ Закрыть", callback_data="dismiss_notify_offline")],
             ])
         try:
-            await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb)
+            await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb, parse_mode="HTML")
         except Exception as e:
             logger.warning(f"[notify_offline] Failed to send TG message: {e}")
 
