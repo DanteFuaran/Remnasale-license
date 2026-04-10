@@ -9,9 +9,9 @@ from config import BOT_ADMIN_ID
 from database import Database
 from bot.banner import show
 from bot.formatting import format_server, clients_header
-from bot.states import AddServerState, RenameState
+from bot.states import AddServerState, RenameState, DurationState
 from bot.keyboards.admin import (
-    clients_kb, server_detail_kb, cancel_kb, add_period_kb, period_kb,
+    clients_kb, server_detail_kb, cancel_kb, add_period_kb, period_kb, duration_kb,
 )
 
 router = Router()
@@ -230,10 +230,11 @@ async def cb_period_selected(call: CallbackQuery, state: FSMContext, db: Databas
     await call.answer()
 
 
-# ── Продлить ───────────────────────────────────────────────────────────────────
+# ── Изменить длительность ───────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("ext:"))
-async def cb_extend(call: CallbackQuery, state: FSMContext, db: Database):
+async def cb_extend_shortcut(call: CallbackQuery, state: FSMContext, db: Database):
+    """Быстрое продление из списка клиентов (клик по дате)."""
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     server_id = int(call.data.split(":")[1])
@@ -274,6 +275,85 @@ async def cb_extend_period(call: CallbackQuery, state: FSMContext, db: Database)
         return
     await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
     await call.answer("✅ Тариф обновлён")
+
+
+@router.callback_query(F.data.startswith("dur:"))
+async def cb_duration_menu(call: CallbackQuery, state: FSMContext, db: Database):
+    """Меню изменения длительности из карточки сервера."""
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await _clear_confirm(state, call.bot, call.message.chat.id)
+    server_id = int(call.data.split(":")[1])
+    await state.update_data(duration_server_id=server_id)
+    await show(call, "📅 Изменить длительность:", reply_markup=duration_kb(server_id), db=db)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("dadd:"))
+async def cb_duration_preset(call: CallbackQuery, state: FSMContext, db: Database):
+    """Добавление заготовленной длительности (или безлимит)."""
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    parts = call.data.split(":")
+    server_id = int(parts[1])
+    value = parts[2]
+    await state.clear()
+    if value == "unlimited":
+        server = await db.extend_server(server_id, "unlimited")
+    else:
+        days = int(value)
+        server = await db.adjust_server_days(server_id, days)
+    if not server:
+        await _notify(call, "Сервер не найден")
+        return
+    await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
+    await call.answer("✅ Длительность обновлена")
+
+
+@router.callback_query(F.data.startswith("dman:"))
+async def cb_duration_manual(call: CallbackQuery, state: FSMContext, db: Database):
+    """Запрос ручного ввода количества дней."""
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    server_id = int(call.data.split(":")[1])
+    await state.set_state(DurationState.waiting_days)
+    await state.update_data(duration_server_id=server_id)
+    await show(call, "✏️ Введите количество дней (число).\n"
+                     "Положительное — добавить, отрицательное — отнять:",
+               reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                   [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"dur:{server_id}", style="primary")],
+               ]), db=db)
+    await call.answer()
+
+
+@router.message(DurationState.waiting_days)
+async def on_duration_days(message: Message, state: FSMContext, db: Database):
+    if not _is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    server_id = data.get("duration_server_id")
+    if not server_id:
+        await state.clear()
+        return
+
+    text = (message.text or "").strip()
+    try:
+        days = int(text)
+    except ValueError:
+        await message.answer("⚠️ Введите целое число (например: 30 или -7)")
+        return
+
+    await state.clear()
+    server = await db.adjust_server_days(server_id, days)
+    if not server:
+        await message.answer("Сервер не найден")
+        return
+    await show(message, await _fmt_server(server, db),
+               reply_markup=server_detail_kb(server), db=db)
+    try:
+        await message.delete()
+    except Exception:
+        pass
 
 
 # ── Сбросить IP ────────────────────────────────────────────────────────────────

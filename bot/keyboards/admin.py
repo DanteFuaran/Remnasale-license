@@ -100,8 +100,8 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔑 Показать ключ", callback_data=f"showkey:{sid}")],
         [
-            InlineKeyboardButton(text="🔄 Продлить",   callback_data=f"ext:{sid}"),
-            InlineKeyboardButton(text=toggle_text,     callback_data=f"tog:{sid}"),
+            InlineKeyboardButton(text="� Длительность", callback_data=f"dur:{sid}"),
+            InlineKeyboardButton(text=toggle_text,       callback_data=f"tog:{sid}"),
         ],
         [InlineKeyboardButton(text="✉️ Написать сообщение", callback_data=f"msg:{sid}")],
         [
@@ -120,6 +120,18 @@ def server_detail_kb(server: dict) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="⬅️ Назад",        callback_data="clients", style="primary"),
             InlineKeyboardButton(text="🏠 Главное меню", callback_data="admin_panel", style="primary"),
         ],
+    ])
+
+
+def duration_kb(server_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="1 месяц", callback_data=f"dadd:{server_id}:30")],
+        [InlineKeyboardButton(text="3 месяца", callback_data=f"dadd:{server_id}:90")],
+        [InlineKeyboardButton(text="6 месяцев", callback_data=f"dadd:{server_id}:180")],
+        [InlineKeyboardButton(text="1 год", callback_data=f"dadd:{server_id}:365")],
+        [InlineKeyboardButton(text="♾ Безлимит", callback_data=f"dadd:{server_id}:unlimited")],
+        [InlineKeyboardButton(text="✏️ Ввести вручную", callback_data=f"dman:{server_id}")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"s:{server_id}", style="primary")],
     ])
 
 

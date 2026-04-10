@@ -40,6 +40,10 @@ class QuickReplyState(StatesGroup):
     waiting_text = State()
 
 
+class DurationState(StatesGroup):
+    waiting_days = State()
+
+
 class GatewayFieldState(StatesGroup):
     waiting_value = State()
 

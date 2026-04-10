@@ -221,8 +221,27 @@ class LicenseDB:
 
     async def set_server_active(self, server_id: int, is_active: int) -> Optional[dict]:
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE servers SET is_active = ? WHERE id = ?", (is_active, server_id))
+            if is_active:
+                # При возобновлении обновляем last_check_at чтобы мониторинг
+                # не считал сервер «молчащим» из-за паузы
+                now = datetime.now(timezone.utc).isoformat()
+                await db.execute(
+                    "UPDATE servers SET is_active = ?, last_check_at = ? WHERE id = ?",
+                    (is_active, now, server_id),
+                )
+            else:
+                await db.execute("UPDATE servers SET is_active = ? WHERE id = ?", (is_active, server_id))
             await db.commit()
+        # Убираем из monitor_silent_ids при любом переключении
+        import json as _json
+        _raw = await self.get_setting("monitor_silent_ids", "")
+        try:
+            _silent = set(int(x) for x in _json.loads(_raw)) if _raw else set()
+        except Exception:
+            _silent = set()
+        if server_id in _silent:
+            _silent.discard(server_id)
+            await self.set_setting("monitor_silent_ids", _json.dumps(list(_silent)))
         return await self.get_server(server_id)
 
     async def blacklist_server(self, server_id: int) -> Optional[dict]:
@@ -273,6 +292,31 @@ class LicenseDB:
             await db.execute(
                 "UPDATE servers SET expires_at = ?, period = ? WHERE id = ?",
                 (expires, period, server_id),
+            )
+            await db.commit()
+        return await self.get_server(server_id)
+
+    async def adjust_server_days(self, server_id: int, days: int) -> Optional[dict]:
+        """Добавляет (или отнимает) указанное количество дней к сроку действия лицензии."""
+        server = await self.get_server(server_id)
+        if not server:
+            return None
+
+        now = datetime.now(timezone.utc)
+        if server["expires_at"]:
+            current_expiry = datetime.fromisoformat(server["expires_at"])
+            if current_expiry.tzinfo is None:
+                current_expiry = current_expiry.replace(tzinfo=timezone.utc)
+            base = max(current_expiry, now)
+        else:
+            # Безлимит — берём текущее время как точку отсчёта
+            base = now
+        expires = (base + timedelta(days=days)).isoformat()
+
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE servers SET expires_at = ? WHERE id = ?",
+                (expires, server_id),
             )
             await db.commit()
         return await self.get_server(server_id)
