@@ -176,6 +176,7 @@ fi
 echo -e "${CYAN}Для установки понадобятся:${NC}"
 echo -e "  ${DARKGRAY}•${NC} Токен Telegram бота — получить у ${YELLOW}@BotFather${NC}"
 echo -e "  ${DARKGRAY}•${NC} Ваш Telegram ID — узнать у ${YELLOW}@userinfobot${NC}"
+echo -e "  ${DARKGRAY}•${NC} GitHub PAT с доступом к репозиторию Remnasale ${DARKGRAY}(scope: repo)${NC}"
 echo -e "  ${DARKGRAY}•${NC} Домен лиц. сервера ${DARKGRAY}(например: rs-license.dfc-online.com)${NC}"
 echo -e "  ${DARKGRAY}•${NC} Домен сайта DFC ${DARKGRAY}(например: dfc-online.com)${NC} — необязательно"
 echo
@@ -221,6 +222,14 @@ fi
 SITE_DOMAIN=$(echo "$SITE_DOMAIN" | sed 's|^https\?://||; s|/.*||')
 echo
 
+# ── GITHUB_PAT ─────────────────────────────────────────────
+GITHUB_PAT=""
+reading_inline "GitHub PAT для доступа к Remnasale (scope: repo):" GITHUB_PAT
+if [[ $? -eq 2 ]]; then
+    GITHUB_PAT=""
+fi
+echo
+
 API_PORT="8080"
 
 echo -e "${BLUE}══════════════════════════════════════${NC}"
@@ -258,6 +267,7 @@ DATABASE_PATH=/data/license.db
 PUBLIC_URL=https://${LICENSE_DOMAIN}
 LICENSE_SERVER_URL=https://${LICENSE_DOMAIN}
 SITE_URL=${_SITE_URL}
+GITHUB_PAT=${GITHUB_PAT}
 EOF
 echo -e "${GREEN}✔${NC}  Файл .env создан."
 echo
