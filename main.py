@@ -125,6 +125,11 @@ async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
                     continue
                 if s.get("is_muted"):
                     continue
+                # Свежая проверка: сервер мог быть приостановлен/заблокирован
+                # после того как get_silent_servers прочитала данные (race condition)
+                _fresh = await db.get_server(s["id"])
+                if not _fresh or not _fresh.get("is_active") or _fresh.get("is_blacklisted"):
+                    continue
                 if BOT_ADMIN_ID:
                     text = (
                         f"🔴 <b>Связь потеряна!</b>\n\n"
