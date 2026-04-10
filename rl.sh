@@ -243,10 +243,35 @@ do_update() {
     echo -e "${BLUE}══════════════════════════════════════${NC}"
     echo
 
-    local SRC_DIR="/opt/DFC Project/license-server"
+    local REPO_URL="https://github.com/DanteFuaran/Remnasale-license/archive/refs/heads/main.tar.gz"
+    local TMP_DIR
+    TMP_DIR=$(mktemp -d)
 
-    if [ ! -d "$SRC_DIR" ] || [ ! -f "$SRC_DIR/main.py" ]; then
-        echo -e "${RED}✖ Исходные файлы не найдены в ${SRC_DIR}${NC}"
+    (
+        # Скачиваем архив с GitHub
+        curl -fsSL "$REPO_URL" -o "$TMP_DIR/repo.tar.gz" 2>/dev/null
+    ) &
+    show_spinner "Загрузка обновления с GitHub" "Архив загружен"
+
+    if [ ! -f "$TMP_DIR/repo.tar.gz" ]; then
+        echo -e "${RED}✖ Не удалось скачать обновление с GitHub${NC}"
+        rm -rf "$TMP_DIR"
+        echo -e "${DARKGRAY}Нажмите Enter для продолжения...${NC}"
+        read -r
+        return
+    fi
+
+    (
+        tar -xzf "$TMP_DIR/repo.tar.gz" -C "$TMP_DIR" 2>/dev/null
+    ) &
+    show_spinner "Распаковка архива" "Архив распакован"
+
+    local SRC_DIR
+    SRC_DIR=$(find "$TMP_DIR" -maxdepth 1 -type d -name "Remnasale-license-*" | head -1)
+
+    if [ -z "$SRC_DIR" ] || [ ! -f "$SRC_DIR/main.py" ]; then
+        echo -e "${RED}✖ Исходные файлы не найдены в архиве${NC}"
+        rm -rf "$TMP_DIR"
         echo -e "${DARKGRAY}Нажмите Enter для продолжения...${NC}"
         read -r
         return
@@ -267,13 +292,9 @@ do_update() {
             cp -rf "$SRC_DIR/packages/." "$COMPOSE_DIR/packages/" 2>/dev/null || true
         fi
         # Обновляем site если есть
-        if [ -d "$SRC_DIR/site" ] || [ -d "$SRC_DIR/../about-page" ]; then
+        if [ -d "$SRC_DIR/site" ]; then
             mkdir -p "$COMPOSE_DIR/site"
-            if [ -d "$SRC_DIR/site" ]; then
-                cp -rf "$SRC_DIR/site/." "$COMPOSE_DIR/site/" 2>/dev/null || true
-            elif [ -d "$SRC_DIR/../about-page" ]; then
-                cp -rf "$SRC_DIR/../about-page/." "$COMPOSE_DIR/site/" 2>/dev/null || true
-            fi
+            cp -rf "$SRC_DIR/site/." "$COMPOSE_DIR/site/" 2>/dev/null || true
         fi
         # Обновляем rl.sh и устанавливаем в /usr/local/bin
         if [ -f "$SRC_DIR/rl.sh" ]; then
@@ -282,6 +303,7 @@ do_update() {
             cp -f "$SRC_DIR/rl.sh" /usr/local/bin/rl
             chmod +x /usr/local/bin/rl
         fi
+        rm -rf "$TMP_DIR"
     ) &
     show_spinner "Обновление файлов" "Файлы обновлены"
 
