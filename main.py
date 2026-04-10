@@ -13,6 +13,7 @@ from api import setup_routes
 from bot.handlers import setup_routers
 from bot.handlers.backup import autobackup_loop
 from bot.middleware import ClearNotificationMiddleware
+from github_sync import github_sync_loop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -230,6 +231,9 @@ async def main():
 
     asyncio.create_task(_monitor_clients_loop(db, bot))
     logger.info("Client monitor started")
+
+    asyncio.create_task(github_sync_loop())
+    logger.info("GitHub sync started")
 
     try:
         await dp.start_polling(bot)
