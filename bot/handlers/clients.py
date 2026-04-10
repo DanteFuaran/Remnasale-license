@@ -284,8 +284,20 @@ async def cb_duration_menu(call: CallbackQuery, state: FSMContext, db: Database)
         return await call.answer("⛔")
     await _clear_confirm(state, call.bot, call.message.chat.id)
     server_id = int(call.data.split(":")[1])
-    await state.update_data(duration_server_id=server_id)
-    await show(call, "📅 Изменить длительность:", reply_markup=duration_kb(server_id), db=db)
+    # Сохраняем id меню чтобы отредактировать его после ввода вручную
+    await state.set_state(DurationState.waiting_days)
+    await state.update_data(
+        duration_server_id=server_id,
+        duration_msg_id=call.message.message_id,
+        duration_chat_id=call.message.chat.id,
+        duration_has_photo=bool(call.message.photo),
+    )
+    text = (
+        "📅 <b>Изменить длительность</b>\n\n"
+        "<i>Выберите на сколько продлить длительность подписки, или введите вручную.</i>\n"
+        "<i>Допускается отрицательное значение чтобы уменьшить длительность.</i>"
+    )
+    await show(call, text, reply_markup=duration_kb(server_id), db=db)
     await call.answer()
 
 
@@ -310,28 +322,15 @@ async def cb_duration_preset(call: CallbackQuery, state: FSMContext, db: Databas
     await call.answer("✅ Длительность обновлена")
 
 
-@router.callback_query(F.data.startswith("dman:"))
-async def cb_duration_manual(call: CallbackQuery, state: FSMContext, db: Database):
-    """Запрос ручного ввода количества дней."""
-    if not _is_admin(call.from_user.id):
-        return await call.answer("⛔")
-    server_id = int(call.data.split(":")[1])
-    await state.set_state(DurationState.waiting_days)
-    await state.update_data(duration_server_id=server_id)
-    await show(call, "✏️ Введите количество дней (число).\n"
-                     "Положительное — добавить, отрицательное — отнять:",
-               reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                   [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"dur:{server_id}", style="primary")],
-               ]), db=db)
-    await call.answer()
-
-
 @router.message(DurationState.waiting_days)
 async def on_duration_days(message: Message, state: FSMContext, db: Database):
     if not _is_admin(message.from_user.id):
         return
     data = await state.get_data()
     server_id = data.get("duration_server_id")
+    msg_id = data.get("duration_msg_id")
+    chat_id = data.get("duration_chat_id")
+    has_photo = data.get("duration_has_photo", False)
     if not server_id:
         await state.clear()
         return
@@ -348,12 +347,34 @@ async def on_duration_days(message: Message, state: FSMContext, db: Database):
     if not server:
         await message.answer("Сервер не найден")
         return
-    await show(message, await _fmt_server(server, db),
-               reply_markup=server_detail_kb(server), db=db)
+
+    # Удаляем введённое сообщение пользователя
     try:
         await message.delete()
     except Exception:
         pass
+
+    # Редактируем исходное меню на месте (единый интерфейс без засорения истории)
+    formatted = await _fmt_server(server, db)
+    kb = server_detail_kb(server)
+    edited = False
+    if msg_id and chat_id:
+        try:
+            if has_photo:
+                await message.bot.edit_message_caption(
+                    chat_id=chat_id, message_id=msg_id,
+                    caption=formatted, reply_markup=kb, parse_mode="HTML",
+                )
+            else:
+                await message.bot.edit_message_text(
+                    formatted, chat_id=chat_id, message_id=msg_id,
+                    reply_markup=kb, parse_mode="HTML",
+                )
+            edited = True
+        except Exception:
+            pass
+    if not edited:
+        await show(message, formatted, reply_markup=kb, db=db)
 
 
 # ── Сбросить IP ────────────────────────────────────────────────────────────────
