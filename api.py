@@ -272,14 +272,32 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
             bot_username = (server.get("bot_username", "") if server else "") or ""
             owner_id = (server.get("owner_telegram_id", "") if server else "") or ""
             dev_ids_raw = (server.get("dev_telegram_ids", "") if server else "") or ""
-            # Показываем первый dev_id как "Телеграм ID" если owner не задан
             display_tg_id = owner_id or (dev_ids_raw.split(",")[0].strip() if dev_ids_raw else "")
+
+            # Получаем имя и username владельца
+            owner_name = "—"
+            owner_username = None
+            if owner_id:
+                try:
+                    user = await db.get_user(int(owner_id))
+                    if user:
+                        owner_name = user.get("full_name") or user.get("username") or f"ID {owner_id}"
+                        owner_username = user.get("username")
+                except Exception:
+                    pass
+            # Формируем строку имени с ссылкой
+            if owner_name != "—" and owner_username:
+                owner_line = f"{owner_name} (https://t.me/{owner_username})"
+            else:
+                owner_line = owner_name
+
             text = (
                 f"🟢 <b>Успешное подключение!</b>\n\n"
-                f"Сервер: <b>{server_name}</b>\n"
-                f"Имя: {('@' + bot_username) if bot_username else '—'}\n"
-                f"Телеграм ID: {display_tg_id or '—'}\n"
-                f"IP: <code>{server_ip or '—'}</code>"
+                f"Сервер: <code>{server_name}</code>\n"
+                f"Имя:  {owner_line}\n"
+                f"Телеграм ID: <code>{display_tg_id or '—'}</code>\n"
+                f"IP: <code>{server_ip or '—'}</code>\n"
+                f"Бот: {('@' + bot_username) if bot_username else '—'}"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline")],
