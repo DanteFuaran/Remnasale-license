@@ -173,6 +173,29 @@ if ! docker compose version &>/dev/null; then
     exit 1
 fi
 
+# Определяем публичный IP сервера
+_SERVER_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null \
+          || curl -s --max-time 5 https://checkip.amazonaws.com 2>/dev/null \
+          || curl -s --max-time 5 https://icanhazip.com 2>/dev/null \
+          || echo "")
+_SERVER_IP=$(echo "$_SERVER_IP" | tr -d '[:space:]')
+
+_resolve_domain_ip() {
+    local domain="$1"
+    local ip=""
+    if command -v dig &>/dev/null; then
+        ip=$(dig +short +time=3 +tries=1 "$domain" 2>/dev/null \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+    fi
+    if [[ -z "$ip" ]] && command -v host &>/dev/null; then
+        ip=$(host -t A "$domain" 2>/dev/null | grep "has address" | awk '{print $NF}' | head -1)
+    fi
+    if [[ -z "$ip" ]]; then
+        ip=$(getent hosts "$domain" 2>/dev/null | awk '{print $1}' | head -1)
+    fi
+    echo "$ip"
+}
+
 echo -e "${CYAN}Для установки понадобятся:${NC}"
 echo -e "  ${DARKGRAY}•${NC} Токен Telegram бота — получить у ${YELLOW}@BotFather${NC}"
 echo -e "  ${DARKGRAY}•${NC} Ваш Telegram ID — узнать у ${YELLOW}@userinfobot${NC}"
@@ -209,17 +232,55 @@ while [[ -z "$LICENSE_DOMAIN" ]]; do
     reading_inline "Домен лиц. сервера (без https://):" LICENSE_DOMAIN
     [[ $? -eq 2 ]] && _cancel_exit
     LICENSE_DOMAIN=$(echo "$LICENSE_DOMAIN" | sed 's|^https\?://||; s|/.*||')
-    [[ -z "$LICENSE_DOMAIN" ]] && echo -e "${RED}  ✖  Домен не может быть пустым.${NC}"
+    if [[ -z "$LICENSE_DOMAIN" ]]; then
+        echo -e "${RED}  ✖  Домен не может быть пустым.${NC}"
+        continue
+    fi
+    if [[ -n "$_SERVER_IP" ]]; then
+        _dom_ip=$(_resolve_domain_ip "$LICENSE_DOMAIN")
+        if [[ -z "$_dom_ip" ]]; then
+            echo -e "${YELLOW}  ⚠  Не удалось определить IP домена ${LICENSE_DOMAIN}. Проверьте DNS.${NC}"
+            echo -en "${BLUE}➜${NC}  ${YELLOW}Продолжить всё равно? [y/N]:${NC} "
+            read -r _yn
+            [[ "$_yn" =~ ^[Yy]$ ]] || { LICENSE_DOMAIN=""; continue; }
+        elif [[ "$_dom_ip" != "$_SERVER_IP" ]]; then
+            echo -e "${YELLOW}  ⚠  Домен указывает на IP ${_dom_ip}, а IP этого сервера — ${_SERVER_IP}.${NC}"
+            echo -en "${BLUE}➜${NC}  ${YELLOW}Продолжить всё равно? [y/N]:${NC} "
+            read -r _yn
+            [[ "$_yn" =~ ^[Yy]$ ]] || { LICENSE_DOMAIN=""; continue; }
+        fi
+    fi
 done
 echo
 
 # ── SITE_DOMAIN (необязательно) ───────────────────────────
 SITE_DOMAIN=""
-reading_inline "Домен сайта DFC (Enter — пропустить):" SITE_DOMAIN
-if [[ $? -eq 2 ]]; then
-    SITE_DOMAIN=""
-fi
-SITE_DOMAIN=$(echo "$SITE_DOMAIN" | sed 's|^https\?://||; s|/.*||')
+_site_ok=false
+while [[ "$_site_ok" == "false" ]]; do
+    reading_inline "Домен сайта DFC (Enter — пропустить):" SITE_DOMAIN
+    if [[ $? -eq 2 ]]; then
+        SITE_DOMAIN=""
+    fi
+    SITE_DOMAIN=$(echo "$SITE_DOMAIN" | sed 's|^https\?://||; s|/.*||')
+    if [[ -z "$SITE_DOMAIN" ]] || [[ -z "$_SERVER_IP" ]]; then
+        _site_ok=true
+        continue
+    fi
+    _dom_ip=$(_resolve_domain_ip "$SITE_DOMAIN")
+    if [[ -z "$_dom_ip" ]]; then
+        echo -e "${YELLOW}  ⚠  Не удалось определить IP домена ${SITE_DOMAIN}. Проверьте DNS.${NC}"
+        echo -en "${BLUE}➜${NC}  ${YELLOW}Продолжить всё равно? [y/N]:${NC} "
+        read -r _yn
+        [[ "$_yn" =~ ^[Yy]$ ]] && _site_ok=true
+    elif [[ "$_dom_ip" != "$_SERVER_IP" ]]; then
+        echo -e "${YELLOW}  ⚠  Домен указывает на IP ${_dom_ip}, а IP этого сервера — ${_SERVER_IP}.${NC}"
+        echo -en "${BLUE}➜${NC}  ${YELLOW}Продолжить всё равно? [y/N]:${NC} "
+        read -r _yn
+        [[ "$_yn" =~ ^[Yy]$ ]] && _site_ok=true
+    else
+        _site_ok=true
+    fi
+done
 echo
 
 # ── GITHUB_PAT ─────────────────────────────────────────────
