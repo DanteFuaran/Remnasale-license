@@ -797,7 +797,7 @@ class LicenseDB:
 
     async def get_silent_servers(self, threshold_minutes: int) -> list[dict]:
         """Возвращает активные серверы, которые не делали check-in дольше threshold_minutes.
-        Серверы с привязанным IP но без единого check-in считаются silent сразу.
+        Серверы без last_check_at (никогда не запускались) игнорируются.
         """
         servers = await self.get_all_servers()
         now = datetime.now(timezone.utc)
@@ -805,13 +805,9 @@ class LicenseDB:
         for s in servers:
             if not s.get("is_active") or s.get("is_blacklisted"):
                 continue
-            # Нет привязанного IP — сервер ещё не устанавливался, игнорируем
-            if not s.get("server_ip"):
-                continue
             last_check = s.get("last_check_at")
-            # IP привязан, но бот ни разу не чекинился — считаем silent сразу
+            # Никогда не делал check-in — сервер ещё не запускался, не мониторим
             if not last_check:
-                result.append(s)
                 continue
             try:
                 dt = datetime.fromisoformat(last_check)

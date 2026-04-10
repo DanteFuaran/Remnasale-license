@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+from datetime import datetime, timezone
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -76,22 +77,47 @@ async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
 
             # Восстановившиеся серверы
             recovered = notified_silent - silent_ids
+            truly_recovered = set()
             for sid in recovered:
                 server = await db.get_server(sid)
-                if server and BOT_ADMIN_ID:
+                if not server:
+                    notified_silent.discard(sid)
+                    continue
+                # Проверяем что last_check_at действительно свежий (сервер реально ожил)
+                last_check = server.get("last_check_at")
+                if not last_check:
+                    # last_check_at нет — сервер не чекинился, просто убираем из notified без алерта
+                    notified_silent.discard(sid)
+                    continue
+                try:
+                    dt = datetime.fromisoformat(last_check)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    elapsed = (datetime.now(timezone.utc) - dt).total_seconds() / 60
+                except (ValueError, TypeError):
+                    notified_silent.discard(sid)
+                    continue
+                if elapsed >= check_interval:
+                    # last_check_at всё ещё старый — сервер на самом деле не ожил,
+                    # просто выпал из мониторинга по другой причине (напр. IP сброшен).
+                    # Убираем без алерта.
+                    notified_silent.discard(sid)
+                    continue
+                truly_recovered.add(sid)
+                if BOT_ADMIN_ID:
                     text = (
                         f"🟢 <b>Связь восстановлена!</b>\n\n"
                         f"Сервер: <b>{server['name']}</b>\n"
                         f"IP: <code>{server.get('server_ip', '—')}</code>"
                     )
                     kb = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline", style="success")],
+                        [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline")],
                     ])
                     try:
                         await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb)
                     except Exception:
                         pass
-            notified_silent.difference_update(recovered)
+            notified_silent.difference_update(truly_recovered)
 
             # Новые молчащие серверы
             for s in silent:
