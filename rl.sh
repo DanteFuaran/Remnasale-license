@@ -5,6 +5,22 @@
 
 set -euo pipefail
 
+# ─── Самообновление rl.sh с GitHub ───────────────────────────────────────────
+_RL_RAW="https://raw.githubusercontent.com/DanteFuaran/Remnasale-license/main/rl.sh"
+_RL_SELF="${BASH_SOURCE[0]}"
+_RL_TMP=$(mktemp 2>/dev/null || echo "/tmp/rl_update_$$")
+if curl -fsSL --max-time 5 "$_RL_RAW" -o "$_RL_TMP" 2>/dev/null; then
+    if ! cmp -s "$_RL_TMP" "$_RL_SELF" 2>/dev/null; then
+        cp "$_RL_TMP" "$_RL_SELF" && chmod +x "$_RL_SELF"
+        # Если установлен в /usr/local/bin/rl — обновить и там
+        [ -f /usr/local/bin/rl ] && cp "$_RL_TMP" /usr/local/bin/rl && chmod +x /usr/local/bin/rl
+        rm -f "$_RL_TMP"
+        exec bash "$_RL_SELF" "$@"
+    fi
+fi
+rm -f "$_RL_TMP"
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ─── Цвета ───
 RED='\033[0;31m'
 GREEN='\033[0;32m'
