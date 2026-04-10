@@ -9,10 +9,10 @@ Telegram-бот + REST API для выдачи, продления и отзыв
 ## 🚀 Установка
 
 ```bash
-cd "/opt/DFC Project/license-server" && bash install.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/DanteFuaran/Remnasale-license/main/install.sh)
 ```
 
-Скрипт запросит токен бота, Telegram ID, домен сервера, порт API и опционально домен сайта DFC, после чего автоматически развернёт контейнер.
+Скрипт запросит токен бота, Telegram ID, GitHub PAT (scope: `repo`), домен сервера и опционально домен сайта DFC, после чего автоматически развернёт контейнер.
 
 ---
 
