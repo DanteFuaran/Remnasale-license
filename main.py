@@ -67,8 +67,8 @@ async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
     while True:
         try:
             check_interval = await db.get_check_interval()
-            # Порог: 3 интервала проверки (минимум 5 минут)
-            threshold = max(5, check_interval * 3)
+            # Порог: равен интервалу проверки (1 пропущенная проверка)
+            threshold = check_interval
             silent = await db.get_silent_servers(threshold)
 
             silent_ids = {s["id"] for s in silent}
