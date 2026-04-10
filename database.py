@@ -73,6 +73,13 @@ class LicenseDB:
             await db.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES ('offline_grace_days', '14')"
             )
+            # Авто-инициализация license_host из PUBLIC_URL если ещё не задан
+            _public_url = os.getenv("PUBLIC_URL", "").strip().rstrip("/")
+            if _public_url:
+                await db.execute(
+                    "INSERT OR IGNORE INTO settings (key, value) VALUES ('license_host', ?)",
+                    (_public_url,),
+                )
             # Миграции
             cursor = await db.execute("PRAGMA table_info(servers)")
             columns = [row[1] for row in await cursor.fetchall()]
