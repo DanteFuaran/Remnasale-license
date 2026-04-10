@@ -1,8 +1,10 @@
 """Background sync: pull Remnasale version + tarball from GitHub automatically."""
 
 import asyncio
+import gzip
 import logging
 import os
+import tarfile
 import tempfile
 import time
 
@@ -79,7 +81,8 @@ async def _fetch_github_version(session: ClientSession) -> str | None:
 
 
 async def _download_tarball(session: ClientSession, version: str) -> bool:
-    """Download repo tarball from GitHub and save to packages directory."""
+    """Download repo tarball from GitHub, strip the top-level directory,
+    and save as a flat archive compatible with docker build context."""
     url = f"{_GITHUB_API}/repos/{GITHUB_REPO}/tarball/{GITHUB_BRANCH}"
     try:
         async with session.get(url, headers=_headers(), allow_redirects=True) as resp:
@@ -89,33 +92,73 @@ async def _download_tarball(session: ClientSession, version: str) -> bool:
 
             os.makedirs(_PRODUCT_DIR, exist_ok=True)
 
-            # Write to temp file first, then atomic rename
-            fd, tmp_path = tempfile.mkstemp(dir=_PRODUCT_DIR, suffix=".tmp")
+            # 1. Save raw GitHub tarball to a temp file
+            fd_raw, tmp_raw = tempfile.mkstemp(dir=_PRODUCT_DIR, suffix=".raw.tmp")
             try:
-                with os.fdopen(fd, "wb") as f:
+                with os.fdopen(fd_raw, "wb") as f:
                     async for chunk in resp.content.iter_chunked(64 * 1024):
                         f.write(chunk)
+            except Exception:
+                try:
+                    os.unlink(tmp_raw)
+                except OSError:
+                    pass
+                raise
+
+            # 2. Repack: strip the top-level GitHub-added directory (e.g. Owner-Repo-SHA/)
+            fd_out, tmp_out = tempfile.mkstemp(dir=_PRODUCT_DIR, suffix=".tar.tmp")
+            os.close(fd_out)
+            try:
+                with tarfile.open(tmp_raw, "r:gz") as src_tar:
+                    members = src_tar.getmembers()
+                    # Detect the top-level prefix (GitHub always adds one)
+                    prefix = ""
+                    if members:
+                        first = members[0].name.rstrip("/")
+                        if first:
+                            prefix = first + "/"
+
+                    with gzip.open(tmp_out, "wb", compresslevel=6) as gz_out:
+                        with tarfile.open(fileobj=gz_out, mode="w|") as dst_tar:
+                            for member in members:
+                                name = member.name
+                                if prefix:
+                                    # Skip or strip the top-level directory
+                                    if name.rstrip("/") + "/" == prefix:
+                                        continue  # root dir itself
+                                    if name.startswith(prefix):
+                                        member.name = name[len(prefix):]
+                                if not member.name:
+                                    continue
+                                if member.isreg():
+                                    dst_tar.addfile(member, src_tar.extractfile(member))
+                                else:
+                                    dst_tar.addfile(member)
 
                 final_path = os.path.join(_PRODUCT_DIR, "remnasale.tar.gz")
                 versioned_path = os.path.join(_PRODUCT_DIR, f"remnasale-{version}.tar.gz")
 
-                os.replace(tmp_path, final_path)
+                os.replace(tmp_out, final_path)
 
-                # Also save versioned copy
                 try:
                     import shutil
                     shutil.copy2(final_path, versioned_path)
                 except Exception:
                     pass
 
-                return True
             except Exception:
-                # Cleanup temp file on error
                 try:
-                    os.unlink(tmp_path)
+                    os.unlink(tmp_out)
                 except OSError:
                     pass
                 raise
+            finally:
+                try:
+                    os.unlink(tmp_raw)
+                except OSError:
+                    pass
+
+            return True
 
     except Exception as e:
         logger.error(f"[github-sync] Tarball download error: {e}")
