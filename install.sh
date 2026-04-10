@@ -243,16 +243,27 @@ if [[ -d "$INSTALL_DIR" ]]; then
     echo -e "${GREEN}✔${NC}  Предыдущая установка удалена."
 fi
 
-# ── Копирование файлов проекта ──────────────────────────────
-_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -d "${_SCRIPT_DIR}/bot" ]] && [[ -f "${_SCRIPT_DIR}/main.py" ]]; then
-    cp -a "${_SCRIPT_DIR}/" "${INSTALL_DIR}/"
-else
-    echo -e "${RED}✖  Не найдены файлы проекта рядом с install.sh${NC}"
-    echo -e "${RED}   Убедитесь, что запускаете install.sh из каталога с проектом.${NC}"
+# ── Скачивание файлов проекта с GitHub ─────────────────────
+REPO_URL="https://github.com/DanteFuaran/Remnasale-license/archive/refs/heads/main.tar.gz"
+_TMP_DIR=$(mktemp -d)
+printf "${GREEN}▶${NC}  Загрузка файлов проекта...\n"
+curl -fsSL --max-time 60 "$REPO_URL" -o "$_TMP_DIR/repo.tar.gz" 2>/dev/null
+if [[ $? -ne 0 ]] || [[ ! -f "$_TMP_DIR/repo.tar.gz" ]]; then
+    echo -e "${RED}✖  Не удалось скачать файлы с GitHub. Проверьте интернет-соединение.${NC}"
+    rm -rf "$_TMP_DIR"
     exit 1
 fi
-echo -e "${GREEN}✔${NC}  Файлы скопированы."
+tar -xzf "$_TMP_DIR/repo.tar.gz" -C "$_TMP_DIR" 2>/dev/null
+_SRC_DIR=$(find "$_TMP_DIR" -maxdepth 1 -type d -name "Remnasale-license-*" | head -1)
+if [[ -z "$_SRC_DIR" ]] || [[ ! -f "$_SRC_DIR/main.py" ]]; then
+    echo -e "${RED}✖  Файлы проекта не найдены в архиве.${NC}"
+    rm -rf "$_TMP_DIR"
+    exit 1
+fi
+mkdir -p "$INSTALL_DIR"
+cp -a "$_SRC_DIR/." "$INSTALL_DIR/"
+rm -rf "$_TMP_DIR"
+echo -e "${GREEN}✔${NC}  Файлы загружены."
 
 # ── Создание .env ───────────────────────────────────────────
 mkdir -p "$INSTALL_DIR/data"
@@ -559,14 +570,7 @@ if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "Status: activ
     echo -e "${GREEN}✔${NC}  Порты ${YELLOW}80, 443${NC} открыты в ufw."
 fi
 
-# ── Сборка и запуск контейнеров ────────────────────────────
-# Копируем сайт DFC если есть about-page рядом с проектом
-if [[ -d "${_SCRIPT_DIR}/../about-page" ]]; then
-    mkdir -p "$INSTALL_DIR/site"
-    cp -a "${_SCRIPT_DIR}/../about-page/." "$INSTALL_DIR/site/"
-    echo -e "${GREEN}✔${NC}  Файлы сайта DFC скопированы."
-fi
-
+# ── Сборка и запуск контейнеров ────────────────────────
 printf "${GREEN}▶${NC}  Сборка и запуск контейнеров...\n"
 docker compose -f "$INSTALL_DIR/docker-compose.yml" up -d --build
 if [[ $? -ne 0 ]]; then
