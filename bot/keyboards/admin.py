@@ -26,6 +26,8 @@ def clients_kb(servers: list[dict], silent_ids: set[int] | None = None) -> Inlin
             except Exception:
                 expires_text = "—"
         name = f"⚠️ {s['name']}" if s["id"] in _silent else s["name"]
+        if not s.get("server_ip"):
+            name = f"❗{name}"
         row = [
             InlineKeyboardButton(text=name, callback_data=f"s:{s['id']}"),
             InlineKeyboardButton(text=expires_text, callback_data=f"ext:{s['id']}"),
