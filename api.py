@@ -53,11 +53,12 @@ async def handle_verify(request: web.Request) -> web.Response:
 
     license_key = data.get("license_key", "").strip()
     server_ip = data.get("server_ip", "").strip()
+    install_mode = bool(data.get("install", False))
 
     if not license_key:
         return web.json_response({"valid": False, "reason": "missing_key"}, status=400)
 
-    result = await db.verify_license(license_key, server_ip)
+    result = await db.verify_license(license_key, server_ip, install_mode=install_mode)
 
     check_interval = await db.get_check_interval()
     result["check_interval"] = check_interval

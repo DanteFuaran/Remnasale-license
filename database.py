@@ -331,7 +331,7 @@ class LicenseDB:
             await db.commit()
         return await self.get_server(server_id)
 
-    async def verify_license(self, key: str, server_ip: str) -> dict:
+    async def verify_license(self, key: str, server_ip: str, install_mode: bool = False) -> dict:
         server = await self.get_server_by_key(key)
 
         if not server:
@@ -361,13 +361,16 @@ class LicenseDB:
                     )
                     await db.commit()
 
-        now = datetime.now(timezone.utc).isoformat()
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute(
-                "UPDATE servers SET last_check_at = ? WHERE id = ?",
-                (now, server["id"]),
-            )
-            await db.commit()
+        # install_mode=True означает вызов из установочного скрипта — бот ещё не запущен,
+        # last_check_at не обновляем чтобы не скрыть потерю связи.
+        if not install_mode:
+            now = datetime.now(timezone.utc).isoformat()
+            async with aiosqlite.connect(self.path) as db:
+                await db.execute(
+                    "UPDATE servers SET last_check_at = ? WHERE id = ?",
+                    (now, server["id"]),
+                )
+                await db.commit()
 
         offline_grace_days = await self.get_offline_grace_days()
         result = {"valid": True, "offline_grace_days": offline_grace_days}
@@ -793,15 +796,22 @@ class LicenseDB:
         return row["cnt"] if row else 0
 
     async def get_silent_servers(self, threshold_minutes: int) -> list[dict]:
-        """Возвращает активные серверы, которые не делали check-in дольше threshold_minutes."""
+        """Возвращает активные серверы, которые не делали check-in дольше threshold_minutes.
+        Серверы с привязанным IP но без единого check-in считаются silent сразу.
+        """
         servers = await self.get_all_servers()
         now = datetime.now(timezone.utc)
         result = []
         for s in servers:
             if not s.get("is_active") or s.get("is_blacklisted"):
                 continue
+            # Нет привязанного IP — сервер ещё не устанавливался, игнорируем
+            if not s.get("server_ip"):
+                continue
             last_check = s.get("last_check_at")
+            # IP привязан, но бот ни разу не чекинился — считаем silent сразу
             if not last_check:
+                result.append(s)
                 continue
             try:
                 dt = datetime.fromisoformat(last_check)
