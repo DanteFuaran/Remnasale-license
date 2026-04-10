@@ -41,8 +41,24 @@ async def _init_default_banner(bot: Bot, db: LicenseDB):
         logger.warning(f"[banner] Failed to init default banner: {e}")
 
 
-# Множество серверов, о которых уже уведомлено (сбрасывается при восстановлении)
-_notified_silent: set[int] = set()
+# Ключ в settings для хранения множества id серверов без связи
+_SETTING_SILENT = "monitor_silent_ids"
+
+
+async def _load_silent(db: LicenseDB) -> set[int]:
+    val = await db.get_setting(_SETTING_SILENT, "")
+    if not val:
+        return set()
+    try:
+        import json as _json
+        return set(int(x) for x in _json.loads(val))
+    except Exception:
+        return set()
+
+
+async def _save_silent(db: LicenseDB, ids: set[int]) -> None:
+    import json as _json
+    await db.set_setting(_SETTING_SILENT, _json.dumps(list(ids)))
 
 
 async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
@@ -56,9 +72,10 @@ async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
             silent = await db.get_silent_servers(threshold)
 
             silent_ids = {s["id"] for s in silent}
+            notified_silent = await _load_silent(db)
 
             # Восстановившиеся серверы
-            recovered = _notified_silent - silent_ids
+            recovered = notified_silent - silent_ids
             for sid in recovered:
                 server = await db.get_server(sid)
                 if server and BOT_ADMIN_ID:
@@ -74,11 +91,11 @@ async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
                         await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb)
                     except Exception:
                         pass
-            _notified_silent.difference_update(recovered)
+            notified_silent.difference_update(recovered)
 
             # Новые молчащие серверы
             for s in silent:
-                if s["id"] in _notified_silent:
+                if s["id"] in notified_silent:
                     continue
                 if s.get("is_muted"):
                     continue
@@ -93,9 +110,11 @@ async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
                     ])
                     try:
                         await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb)
-                        _notified_silent.add(s["id"])
+                        notified_silent.add(s["id"])
                     except Exception:
                         pass
+
+            await _save_silent(db, notified_silent)
 
         except Exception as e:
             logger.warning(f"[monitor] Client monitor error: {e}")

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -18,6 +19,16 @@ router = Router()
 
 def _is_admin(user_id: int) -> bool:
     return user_id == BOT_ADMIN_ID
+
+
+async def _get_silent_ids(db: Database) -> set[int]:
+    val = await db.get_setting("monitor_silent_ids", "")
+    if not val:
+        return set()
+    try:
+        return set(int(x) for x in json.loads(val))
+    except Exception:
+        return set()
 
 
 async def _fmt_server(server: dict, db: Database) -> str:
@@ -71,7 +82,7 @@ async def cb_clients(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     servers = await db.get_all_servers()
-    await show(call, clients_header(len(servers)), reply_markup=clients_kb(servers), db=db)
+    await show(call, clients_header(len(servers)), reply_markup=clients_kb(servers, await _get_silent_ids(db)), db=db)
     await call.answer()
 
 
@@ -83,7 +94,7 @@ async def cb_cancel_add(call: CallbackQuery, state: FSMContext, db: Database):
     if not _is_admin(call.from_user.id):
         return await call.answer("⛔")
     servers = await db.get_all_servers()
-    await show(call, clients_header(len(servers)), reply_markup=clients_kb(servers), db=db)
+    await show(call, clients_header(len(servers)), reply_markup=clients_kb(servers, await _get_silent_ids(db)), db=db)
     await call.answer()
 
 
@@ -167,7 +178,7 @@ async def cb_toggle_from_list(call: CallbackQuery, db: Database):
     new_active = 0 if server["is_active"] else 1
     await db.set_server_active(server_id, new_active)
     servers = await db.get_all_servers()
-    await show(call, clients_header(len(servers)), reply_markup=clients_kb(servers), db=db)
+    await show(call, clients_header(len(servers)), reply_markup=clients_kb(servers, await _get_silent_ids(db)), db=db)
     await call.answer()
 
 
@@ -402,7 +413,7 @@ async def cb_delete(call: CallbackQuery, state: FSMContext, db: Database):
         await state.update_data(confirm_delete=None, confirm_msg_id=None)
         await db.delete_server(server_id)
         servers = await db.get_all_servers()
-        await show(call, clients_header(len(servers)), reply_markup=clients_kb(servers), db=db)
+        await show(call, clients_header(len(servers)), reply_markup=clients_kb(servers, await _get_silent_ids(db)), db=db)
         await call.answer("🗑 Удалено")
     else:
         server = await db.get_server(server_id)

@@ -200,6 +200,25 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
 
     server = await db.get_server_by_key(license_key)
     server_name = server["name"] if server else (license_key[:16] if license_key else "???")
+    server_id = server["id"] if server else None
+
+    # Синхронизируем monitor_silent_ids в БД
+    if server_id is not None:
+        import json as _json
+        _raw = await db.get_setting("monitor_silent_ids", "")
+        try:
+            _silent = set(int(x) for x in _json.loads(_raw)) if _raw else set()
+        except Exception:
+            _silent = set()
+        changed = False
+        if event == "offline" and server_id not in _silent:
+            _silent.add(server_id)
+            changed = True
+        elif event == "online" and server_id in _silent:
+            _silent.discard(server_id)
+            changed = True
+        if changed:
+            await db.set_setting("monitor_silent_ids", _json.dumps(list(_silent)))
 
     if bot and BOT_ADMIN_ID:
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton

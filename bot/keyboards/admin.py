@@ -12,8 +12,9 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     ])
 
 
-def clients_kb(servers: list[dict]) -> InlineKeyboardMarkup:
+def clients_kb(servers: list[dict], silent_ids: set[int] | None = None) -> InlineKeyboardMarkup:
     buttons = []
+    _silent = silent_ids or set()
     for s in servers:
         emoji, _ = server_status(s)
         if not s["expires_at"]:
@@ -24,8 +25,9 @@ def clients_kb(servers: list[dict]) -> InlineKeyboardMarkup:
                 expires_text = dt.strftime("%d.%m.%Y")
             except Exception:
                 expires_text = "—"
+        name = f"⚠️ {s['name']}" if s["id"] in _silent else s["name"]
         row = [
-            InlineKeyboardButton(text=s["name"], callback_data=f"s:{s['id']}"),
+            InlineKeyboardButton(text=name, callback_data=f"s:{s['id']}"),
             InlineKeyboardButton(text=expires_text, callback_data=f"ext:{s['id']}"),
             InlineKeyboardButton(text=emoji, callback_data=f"tgl:{s['id']}"),
         ]
