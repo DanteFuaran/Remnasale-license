@@ -4,7 +4,7 @@ import logging
 import os
 import time
 from aiohttp import web, ClientSession, ClientTimeout
-from config import BOT_ADMIN_ID, PACKAGES_DIR, LICENSE_SERVER_URL
+from config import BOT_ADMIN_ID, PACKAGES_DIR, LICENSE_SERVER_URL, GITHUB_PAT, GITHUB_REPO, GITHUB_BRANCH
 
 logger = logging.getLogger(__name__)
 
@@ -155,8 +155,41 @@ async def handle_download(request: web.Request) -> web.Response:
     )
 
 
+# ── Cached install script from GitHub ─────────────────────────────────
+_install_script_cache: str | None = None
+_install_script_cached_at: float = 0.0
+_INSTALL_SCRIPT_TTL = 300  # 5 minutes
+
+
+async def _fetch_install_script_from_github() -> str | None:
+    """Download remnasale-install.sh from private GitHub repo."""
+    global _install_script_cache, _install_script_cached_at
+
+    now = time.monotonic()
+    if _install_script_cache and (now - _install_script_cached_at) < _INSTALL_SCRIPT_TTL:
+        return _install_script_cache
+
+    if not GITHUB_PAT or not GITHUB_REPO:
+        return None
+
+    url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/remnasale-install.sh"
+    headers = {"Authorization": f"token {GITHUB_PAT}"}
+    try:
+        async with ClientSession(timeout=ClientTimeout(total=15)) as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    _install_script_cache = await resp.text()
+                    _install_script_cached_at = now
+                    return _install_script_cache
+                else:
+                    logger.warning(f"[install-script] GitHub returned {resp.status}")
+    except Exception as e:
+        logger.warning(f"[install-script] GitHub fetch error: {e}")
+    return _install_script_cache  # return stale cache if available
+
+
 async def handle_install_script(request: web.Request) -> web.Response:
-    """Serve the Remnasale install script from packages directory (legacy endpoint)."""
+    """Serve the Remnasale install script from packages directory or GitHub."""
     db = request.app["db"]
     key = request.query.get("key", "").strip()
 
@@ -167,22 +200,30 @@ async def handle_install_script(request: web.Request) -> web.Response:
     if not result["valid"]:
         return web.json_response({"error": result.get("reason", "invalid")}, status=403)
 
-    # Try to find install script inside the remnasale tarball or a standalone script
+    # 1. Try local file
     script_path = os.path.join(PACKAGES_DIR, "remnasale", "install.sh")
-    if not os.path.exists(script_path):
-        return web.Response(status=404, text="Install script not found")
+    if os.path.exists(script_path):
+        try:
+            with open(script_path, "r") as f:
+                script = f.read()
+            return web.Response(
+                text=script,
+                content_type="text/plain",
+                headers={"Cache-Control": "no-cache"},
+            )
+        except Exception as e:
+            logger.error(f"[install-script] Error reading local file: {e}")
 
-    try:
-        with open(script_path, "r") as f:
-            script = f.read()
+    # 2. Fallback: download from GitHub
+    script = await _fetch_install_script_from_github()
+    if script:
         return web.Response(
             text=script,
             content_type="text/plain",
             headers={"Cache-Control": "no-cache"},
         )
-    except Exception as e:
-        logger.error(f"[install-script] Error: {e}")
-        return web.Response(status=500, text="Failed to serve install script")
+
+    return web.Response(status=404, text="Install script not available")
 
 
 async def handle_notify_offline(request: web.Request) -> web.Response:
