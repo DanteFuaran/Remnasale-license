@@ -63,7 +63,9 @@ async def _save_silent(db: LicenseDB, ids: set[int]) -> None:
 
 
 async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
-    """Фоновый мониторинг: если клиент молчит дольше 3 * check_interval — уведомляем."""
+    """Фоновый мониторинг: если клиент молчит дольше 3 * check_interval — уведомляем.
+    Если молчит дольше silence_suspend_days — автоматически приостанавливаем лицензию.
+    """
     await asyncio.sleep(60)  # Дать серверу запуститься
     while True:
         try:
@@ -74,6 +76,52 @@ async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
 
             silent_ids = {s["id"] for s in silent}
             notified_silent = await _load_silent(db)
+
+            # ── Авто-приостановка при длительном молчании ────────────
+            suspend_days = await db.get_silence_suspend_days()
+            if suspend_days > 0:
+                suspend_threshold_min = suspend_days * 1440
+                to_suspend = await db.get_servers_for_auto_suspend(suspend_threshold_min)
+                for s in to_suspend:
+                    sid = s["id"]
+                    # Перечитываем свежие данные — сервер мог ожить
+                    _fresh = await db.get_server(sid)
+                    if not _fresh or not _fresh.get("is_active") or _fresh.get("is_blacklisted"):
+                        continue
+                    # Приостанавливаем
+                    await db.set_server_active(sid, 0)
+                    # Запоминаем причину авто-приостановки
+                    await db.set_setting(f"auto_suspended:{sid}", "silence")
+                    logger.warning(
+                        f"[monitor] Auto-suspended server {_fresh['name']} (id={sid}): "
+                        f"silent for >{suspend_days} days"
+                    )
+                    if BOT_ADMIN_ID:
+                        text = (
+                            f"⛔ <b>Авто-приостановка!</b>\n\n"
+                            f"Сервер: <b>{_fresh['name']}</b>\n"
+                            f"IP: <code>{_fresh.get('server_ip', '—')}</code>\n\n"
+                            f"Причина: нет связи более <b>{suspend_days} дн.</b>\n"
+                            f"Лицензия приостановлена автоматически."
+                        )
+                        kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(
+                                text="▶️ Возобновить",
+                                callback_data=f"tgl:{sid}",
+                            )],
+                            [InlineKeyboardButton(
+                                text="❌ Закрыть",
+                                callback_data="dismiss_notify_offline",
+                                style="danger",
+                            )],
+                        ])
+                        try:
+                            await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb)
+                        except Exception:
+                            pass
+                    # Убираем из silent-трекинга (уже приостановлен)
+                    notified_silent.discard(sid)
+                    silent_ids.discard(sid)
 
             # Восстановившиеся серверы
             recovered = notified_silent - silent_ids

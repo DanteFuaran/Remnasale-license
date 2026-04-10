@@ -83,8 +83,10 @@ def _pluralize_servers(n: int) -> str:
     return f"{n} серверов"
 
 
-def format_server(server: dict, owner_user: dict | None = None) -> str:
+def format_server(server: dict, owner_user: dict | None = None, auto_suspended: bool = False) -> str:
     emoji, status_text = server_status(server)
+    if auto_suspended and not server["is_active"] and not server.get("is_blacklisted"):
+        status_text = "Авто-приостановлен"
 
     name = server.get("name", "") or "Отсутствует"
 

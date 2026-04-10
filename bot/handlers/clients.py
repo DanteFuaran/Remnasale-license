@@ -43,7 +43,8 @@ async def _fmt_server(server: dict, db: Database) -> str:
             owner_user = await db.get_user(int(owner_id_str))
         except Exception:
             pass
-    return format_server(server, owner_user=owner_user)
+    auto_suspend_reason = await db.get_setting(f"auto_suspended:{server['id']}", "")
+    return format_server(server, owner_user=owner_user, auto_suspended=bool(auto_suspend_reason))
 
 
 async def _auto_delete(bot: Bot, chat_id: int, message_id: int, delay: int = 5):
@@ -177,6 +178,8 @@ async def cb_toggle_from_list(call: CallbackQuery, db: Database):
         return
     new_active = 0 if server["is_active"] else 1
     await db.set_server_active(server_id, new_active)
+    if new_active:
+        await db.set_setting(f"auto_suspended:{server_id}", "")
     servers = await db.get_all_servers()
     await show(call, clients_header(len(servers)), reply_markup=clients_kb(servers, await _get_silent_ids(db)), db=db)
     await call.answer()
@@ -407,6 +410,9 @@ async def cb_toggle(call: CallbackQuery, state: FSMContext, db: Database):
         return
     new_active = 0 if server["is_active"] else 1
     server = await db.set_server_active(server_id, new_active)
+    # Сброс флага авто-приостановки при ручном возобновлении
+    if new_active:
+        await db.set_setting(f"auto_suspended:{server_id}", "")
     await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
     await call.answer()
 

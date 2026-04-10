@@ -567,6 +567,17 @@ class LicenseDB:
     async def set_offline_grace_days(self, days: int):
         await self.set_setting("offline_grace_days", str(max(1, days)))
 
+    async def get_silence_suspend_days(self) -> int:
+        """Через сколько дней молчания автоматически приостановить лицензию (0 = отключено)."""
+        val = await self.get_setting("silence_suspend_days", "0")
+        try:
+            return max(0, int(val))
+        except (ValueError, TypeError):
+            return 0
+
+    async def set_silence_suspend_days(self, days: int):
+        await self.set_setting("silence_suspend_days", str(max(0, days)))
+
     async def find_servers_by_dev_id(self, telegram_id: int) -> list[dict]:
         servers = await self.get_all_servers()
         tid_str = str(telegram_id)
@@ -876,6 +887,32 @@ class LicenseDB:
                 continue
             last_check = s.get("last_check_at")
             # Никогда не делал check-in — сервер ещё не запускался, не мониторим
+            if not last_check:
+                continue
+            try:
+                dt = datetime.fromisoformat(last_check)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                elapsed = (now - dt).total_seconds() / 60
+                if elapsed >= threshold_minutes:
+                    result.append(s)
+            except (ValueError, TypeError):
+                continue
+        return result
+
+    async def get_servers_for_auto_suspend(self, threshold_minutes: int) -> list[dict]:
+        """Серверы, молчащие дольше threshold_minutes — кандидаты на авто-приостановку.
+        Исключает уже приостановленные, заблокированные и без IP.
+        """
+        servers = await self.get_all_servers()
+        now = datetime.now(timezone.utc)
+        result = []
+        for s in servers:
+            if not s.get("is_active") or s.get("is_blacklisted"):
+                continue
+            if not s.get("server_ip"):
+                continue
+            last_check = s.get("last_check_at")
             if not last_check:
                 continue
             try:

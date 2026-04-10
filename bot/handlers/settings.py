@@ -7,7 +7,7 @@ from config import BOT_ADMIN_ID
 from database import Database
 from bot.banner import show
 from bot.states import (
-    SettingsIntervalState, SettingsOfflineGraceState,
+    SettingsIntervalState, SettingsOfflineGraceState, SettingsSilenceSuspendState,
     SettingsSupportUrlState, SettingsCommunityUrlState,
     BrandingBannerState, SettingsLicenseHostState,
     DonateMessageState, DonateBtnLabelState, DonateBtnUrlState,
@@ -56,8 +56,9 @@ async def cb_settings_sync(call: CallbackQuery, state: FSMContext, db: Database)
         return await call.answer("⛔")
     interval = await db.get_check_interval()
     grace = await db.get_offline_grace_days()
+    suspend = await db.get_silence_suspend_days()
     await show(call, "🔄 <b>Настройка синхронизации</b>",
-               reply_markup=sync_kb(interval, grace), db=db)
+               reply_markup=sync_kb(interval, grace, suspend), db=db)
     await call.answer()
 
 
@@ -98,8 +99,9 @@ async def on_interval_input(message: Message, state: FSMContext, db: Database):
     chat_id = data.get("prompt_chat_id") or message.chat.id
     interval = await db.get_check_interval()
     grace = await db.get_offline_grace_days()
+    suspend = await db.get_silence_suspend_days()
     text = f"✅ Интервал: <b>{val} мин.</b>\n\n🔄 <b>Настройка синхронизации</b>"
-    kb = sync_kb(interval, grace)
+    kb = sync_kb(interval, grace, suspend)
     if prompt_msg_id:
         from bot.banner import edit_prompt
         await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, db=db)
@@ -144,8 +146,62 @@ async def on_offline_grace_input(message: Message, state: FSMContext, db: Databa
     chat_id = data.get("prompt_chat_id") or message.chat.id
     interval = await db.get_check_interval()
     grace = await db.get_offline_grace_days()
+    suspend = await db.get_silence_suspend_days()
     text = f"✅ Автономность: <b>{val} дн.</b>\n\n🔄 <b>Настройка синхронизации</b>"
-    kb = sync_kb(interval, grace)
+    kb = sync_kb(interval, grace, suspend)
+    if prompt_msg_id:
+        from bot.banner import edit_prompt
+        await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, db=db)
+        return
+    await show(message, text, reply_markup=kb, db=db)
+
+
+# ── Авто-приостановка при молчании ─────────────────────────────────────────────
+
+@router.callback_query(F.data == "settings_silence_suspend")
+async def cb_settings_silence_suspend(call: CallbackQuery, state: FSMContext, db: Database):
+    if not _is_admin(call.from_user.id):
+        return await call.answer("⛔")
+    await state.set_state(SettingsSilenceSuspendState.waiting_days)
+    await state.update_data(prompt_msg_id=call.message.message_id,
+                            prompt_chat_id=call.message.chat.id)
+    await show(call, (
+        "⛔ Введите через сколько <b>дней</b> молчания "
+        "автоматически приостановить лицензию (0 = откл., 1–365):\n\n"
+        "<i>Если клиент не отправляет запросы проверки "
+        "дольше указанного срока, лицензия будет "
+        "приостановлена автоматически.</i>"
+    ), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="settings_sync", style="danger")],
+    ]), db=db)
+    await call.answer()
+
+
+@router.message(SettingsSilenceSuspendState.waiting_days)
+async def on_silence_suspend_input(message: Message, state: FSMContext, db: Database):
+    if not _is_admin(message.from_user.id):
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    try:
+        val = int(message.text.strip())
+        if not 0 <= val <= 365:
+            raise ValueError
+    except ValueError:
+        return
+    await db.set_silence_suspend_days(val)
+    data = await state.get_data()
+    await state.clear()
+    prompt_msg_id = data.get("prompt_msg_id")
+    chat_id = data.get("prompt_chat_id") or message.chat.id
+    interval = await db.get_check_interval()
+    grace = await db.get_offline_grace_days()
+    suspend = await db.get_silence_suspend_days()
+    label = f"{val} дн." if val > 0 else "Откл."
+    text = f"✅ Авто-приостановка: <b>{label}</b>\n\n🔄 <b>Настройка синхронизации</b>"
+    kb = sync_kb(interval, grace, suspend)
     if prompt_msg_id:
         from bot.banner import edit_prompt
         await edit_prompt(message.bot, chat_id, prompt_msg_id, text, reply_markup=kb, db=db)

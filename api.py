@@ -352,6 +352,7 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="❌ Закрыть", callback_data="dismiss_notify_offline")],
             ])
+        logger.info(f"[notify_offline] Sending event={event} to admin {BOT_ADMIN_ID}")
         try:
             await bot.send_message(
                 BOT_ADMIN_ID, text,
@@ -359,6 +360,7 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
                 parse_mode="HTML",
                 disable_web_page_preview=True,
             )
+            logger.info(f"[notify_offline] Message sent OK for event={event}")
         except Exception as e:
             logger.warning(f"[notify_offline] Failed to send TG message: {e}")
 

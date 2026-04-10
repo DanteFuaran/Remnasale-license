@@ -18,6 +18,10 @@ class SettingsOfflineGraceState(StatesGroup):
     waiting_days = State()
 
 
+class SettingsSilenceSuspendState(StatesGroup):
+    waiting_days = State()
+
+
 class SettingsSupportUrlState(StatesGroup):
     waiting_url = State()
 
