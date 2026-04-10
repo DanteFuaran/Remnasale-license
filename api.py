@@ -256,7 +256,10 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
         if event == "offline" and server_id not in _silent:
             _silent.add(server_id)
             changed = True
-        elif event == "online" and server_id in _silent:
+        elif event in ("online", "installed") and server_id in _silent:
+            _silent.discard(server_id)
+            changed = True
+        elif event == "uninstalled" and server_id in _silent:
             _silent.discard(server_id)
             changed = True
         if changed:
@@ -264,14 +267,40 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
 
     if bot and BOT_ADMIN_ID:
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-        if event == "online":
+        if event == "installed":
+            # Формируем детали: имя бота, telegram_id владельца
+            bot_username = (server.get("bot_username", "") if server else "") or ""
+            owner_id = (server.get("owner_telegram_id", "") if server else "") or ""
+            dev_ids_raw = (server.get("dev_telegram_ids", "") if server else "") or ""
+            # Показываем первый dev_id как "Телеграм ID" если owner не задан
+            display_tg_id = owner_id or (dev_ids_raw.split(",")[0].strip() if dev_ids_raw else "")
+            text = (
+                f"🟢 <b>Успешное подключение!</b>\n\n"
+                f"Сервер: <b>{server_name}</b>\n"
+                f"Имя: {('@' + bot_username) if bot_username else '—'}\n"
+                f"Телеграм ID: {display_tg_id or '—'}\n"
+                f"IP: <code>{server_ip or '—'}</code>"
+            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline")],
+            ])
+        elif event == "uninstalled":
+            text = (
+                f"🗑 <b>Remnasale удалён!</b>\n\n"
+                f"Сервер: <b>{server_name}</b>\n"
+                f"IP: <code>{server_ip or '—'}</code>"
+            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline")],
+            ])
+        elif event == "online":
             text = (
                 f"\U0001f7e2 <b>Связь восстановлена!</b>\n\n"
                 f"Сервер: <b>{server_name}</b>\n"
                 f"IP: <code>{server_ip}</code>"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline", style="success")],
+                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline")],
             ])
         else:
             text = (
@@ -280,7 +309,7 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
                 f"IP: <code>{server_ip}</code>"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="❌ Закрыть", callback_data="dismiss_notify_offline", style="danger")],
+                [InlineKeyboardButton(text="❌ Закрыть", callback_data="dismiss_notify_offline")],
             ])
         try:
             await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb)
