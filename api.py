@@ -300,16 +300,40 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
                 f"Бот: {('@' + bot_username) if bot_username else '—'}"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline")],
+                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline", style="success")],
             ])
         elif event == "uninstalled":
+            # Получаем детали об удалённом клиенте
+            bot_username = (server.get("bot_username", "") if server else "") or ""
+            owner_id = (server.get("owner_telegram_id", "") if server else "") or ""
+            dev_ids_raw = (server.get("dev_telegram_ids", "") if server else "") or ""
+            display_tg_id = owner_id or (dev_ids_raw.split(",")[0].strip() if dev_ids_raw else "")
+
+            owner_name = "—"
+            owner_username = None
+            if owner_id:
+                try:
+                    user = await db.get_user(int(owner_id))
+                    if user:
+                        owner_name = user.get("full_name") or user.get("username") or f"ID {owner_id}"
+                        owner_username = user.get("username")
+                except Exception:
+                    pass
+            if owner_name != "—" and owner_username:
+                owner_line = f"{owner_name} (https://t.me/{owner_username})"
+            else:
+                owner_line = owner_name
+
             text = (
-                f"🗑 <b>Remnasale удалён!</b>\n\n"
-                f"Сервер: <b>{server_name}</b>\n"
-                f"IP: <code>{server_ip or '—'}</code>"
+                f"🔴 <b>Успешное удаление!</b>\n\n"
+                f"Сервер: <code>{server_name}</code>\n"
+                f"Имя:  {owner_line}\n"
+                f"Телеграм ID: <code>{display_tg_id or '—'}</code>\n"
+                f"IP: <code>{server_ip or '—'}</code>\n"
+                f"Бот: {('@' + bot_username) if bot_username else '—'}"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline")],
+                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline", style="danger")],
             ])
         elif event == "online":
             text = (
