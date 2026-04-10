@@ -4,7 +4,6 @@ import logging
 import os
 import time
 from aiohttp import web, ClientSession, ClientTimeout
-from aiogram.types import LinkPreviewOptions
 from config import BOT_ADMIN_ID, PACKAGES_DIR, LICENSE_SERVER_URL, GITHUB_PAT, GITHUB_REPO, GITHUB_BRANCH
 
 logger = logging.getLogger(__name__)
@@ -358,7 +357,7 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
                 BOT_ADMIN_ID, text,
                 reply_markup=kb,
                 parse_mode="HTML",
-                link_preview=LinkPreviewOptions(is_disabled=True),
+                disable_web_page_preview=True,
             )
         except Exception as e:
             logger.warning(f"[notify_offline] Failed to send TG message: {e}")
