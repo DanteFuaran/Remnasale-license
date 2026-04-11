@@ -155,16 +155,19 @@ async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
                     continue
                 truly_recovered.add(sid)
                 if BOT_ADMIN_ID:
+                    _domain = (server.get('app_domain') or '').strip()
+                    _domain_line = f"\n🌐 Домен: <code>{_domain}</code>" if _domain else ""
                     text = (
                         f"🟢 <b>Связь восстановлена!</b>\n\n"
                         f"Сервер: <b>{server['name']}</b>\n"
                         f"IP: <code>{server.get('server_ip', '—')}</code>"
+                        f"{_domain_line}"
                     )
                     kb = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline")],
                     ])
                     try:
-                        await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb)
+                        await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb, parse_mode="HTML")
                     except Exception:
                         pass
             notified_silent.difference_update(truly_recovered)

@@ -380,14 +380,8 @@ async def handle_notify_offline(request: web.Request) -> web.Response:
                 [InlineKeyboardButton(text="❌ Закрыть", callback_data="dismiss_notify_offline", style="danger")],
             ])
         elif event == "online":
-            text = (
-                f"\U0001f7e2 <b>Связь восстановлена!</b>\n\n"
-                f"Сервер: <b>{server_name}</b>\n"
-                f"IP: <code>{server_ip}</code>"
-            )
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Закрыть", callback_data="dismiss_notify_offline", style="success")],
-            ])
+            # Уведомление отправляется монитором в main.py (с доменом) — здесь пропускаем
+            return web.json_response({"success": True})
         else:
             text = (
                 f"\U0001f534 <b>Связь потеряна!</b>\n\n"

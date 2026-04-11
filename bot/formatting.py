@@ -93,6 +93,9 @@ def format_server(server: dict, owner_user: dict | None = None, auto_suspended: 
     sip = server.get("server_ip") or ""
     ip_display = f"<code>{sip}</code>" if sip else "Отсутствует"
 
+    domain = (server.get("app_domain") or "").strip()
+    domain_display = f"<code>{domain}</code>" if domain else "Отсутствует"
+
     owner_id = (server.get("owner_telegram_id", "") or "").strip()
     if not owner_id:
         dev_ids_raw = server.get("dev_telegram_ids", "") or ""
@@ -158,6 +161,7 @@ def format_server(server: dict, owner_user: dict | None = None, auto_suspended: 
         f"📦 <b>Remnasale{ver_suffix}</b>\n"
         f"<blockquote>{emoji} Статус: {status_text}\n"
         f"🤖 Телеграм бот: {bot_link}\n"
+        f"🔗 Домен: {domain_display}\n"
         f"🌐 IP: {ip_display}{muted_line}</blockquote>\n"
         f"\n"
         f"📦 <b>Support</b>\n"
