@@ -15,3 +15,4 @@ LICENSE_SERVER_URL: str = os.getenv("LICENSE_SERVER_URL", "https://rs-license.df
 GITHUB_PAT: str = os.getenv("GITHUB_PAT", "")
 GITHUB_REPO: str = os.getenv("GITHUB_REPO", "DanteFuaran/Remnasale")
 GITHUB_BRANCH: str = os.getenv("GITHUB_BRANCH", "lic")
+TELEGRAM_PROXY: str = os.getenv("TELEGRAM_PROXY", "")  # e.g. socks5://user:pass@host:port

@@ -7,7 +7,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import BotCommand, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 
-from config import BOT_TOKEN, API_HOST, API_PORT, DATABASE_PATH, BOT_ADMIN_ID
+from config import BOT_TOKEN, API_HOST, API_PORT, DATABASE_PATH, BOT_ADMIN_ID, TELEGRAM_PROXY
 from database import LicenseDB
 from api import setup_routes, push_license_event
 from bot.handlers import setup_routers
@@ -207,8 +207,15 @@ async def main():
     db = LicenseDB(DATABASE_PATH)
     await db.init()
 
-    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
-    await bot.set_my_commands([BotCommand(command="start", description="Главное меню")])
+    bot_kwargs = {"token": BOT_TOKEN, "default": DefaultBotProperties(parse_mode="HTML")}
+    if TELEGRAM_PROXY:
+        from aiogram.client.session.aiohttp import AiohttpSession
+        bot_kwargs["session"] = AiohttpSession(proxy=TELEGRAM_PROXY)
+    bot = Bot(**bot_kwargs)
+    try:
+        await bot.set_my_commands([BotCommand(command="start", description="Главное меню")])
+    except Exception as e:
+        logger.warning(f"Failed to set bot commands (Telegram unreachable?): {e}")
 
     await _init_default_banner(bot, db)
 
