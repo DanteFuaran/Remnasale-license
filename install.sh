@@ -161,13 +161,45 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# Проверка зависимостей
-for _cmd in git docker curl; do
+# Установка зависимостей
+_install_docker() {
+    echo -e "${BLUE}➜${NC}  Обновление пакетов..."
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq \
+        -o Dpkg::Options::="--force-confdef" \
+        -o Dpkg::Options::="--force-confold" >/dev/null 2>&1
+
+    echo -e "${BLUE}➜${NC}  Установка Docker..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg >/dev/null 2>&1
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+        | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg 2>/dev/null
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+        > /etc/apt/sources.list.d/docker.list
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+        docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>&1
+    systemctl enable docker --now >/dev/null 2>&1
+    echo -e "${GREEN}✔  Docker установлен${NC}"
+}
+
+for _cmd in git curl; do
     if ! command -v "$_cmd" &>/dev/null; then
-        echo -e "${RED}✖  Команда '${_cmd}' не найдена. Установите её и повторите попытку.${NC}"
-        exit 1
+        echo -e "${BLUE}➜${NC}  Установка ${_cmd}..."
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$_cmd" >/dev/null 2>&1
     fi
 done
+
+if ! command -v docker &>/dev/null || ! docker compose version &>/dev/null 2>&1; then
+    _install_docker
+fi
+
+if ! command -v docker &>/dev/null; then
+    echo -e "${RED}✖  Не удалось установить Docker. Установите вручную и повторите попытку.${NC}"
+    exit 1
+fi
 if ! docker compose version &>/dev/null; then
     echo -e "${RED}✖  Docker Compose не найден. Установите Docker с поддержкой Compose v2.${NC}"
     exit 1
