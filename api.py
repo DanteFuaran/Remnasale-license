@@ -469,7 +469,8 @@ async def handle_webhook_heleket(request: web.Request) -> web.Response:
     db = request.app["db"]
 
     try:
-        data = await request.json()
+        body_raw = await request.read()
+        data = json.loads(body_raw)
     except Exception:
         return web.Response(status=400, text="bad request")
 
@@ -494,9 +495,8 @@ async def handle_webhook_heleket(request: web.Request) -> web.Response:
         api_key = (gw.get("settings", {}).get("api_key", "") or "").strip()
         if api_key:
             sign = request.headers.get("sign", "")
-            body_raw = await request.text()
             expected = hashlib.md5(
-                (json.dumps(data, separators=(",", ":"), sort_keys=True).encode().hex() + api_key).encode()
+                (body_raw.hex() + api_key).encode()
             ).hexdigest()
             if sign != expected:
                 logger.warning(f"[heleket] Signature mismatch for order {order_id}")
