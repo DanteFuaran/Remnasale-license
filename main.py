@@ -9,7 +9,7 @@ from aiogram.types import BotCommand, BufferedInputFile, InlineKeyboardMarkup, I
 
 from config import BOT_TOKEN, API_HOST, API_PORT, DATABASE_PATH, BOT_ADMIN_ID
 from database import LicenseDB
-from api import setup_routes
+from api import setup_routes, push_license_event
 from bot.handlers import setup_routers
 from bot.handlers.backup import autobackup_loop
 from bot.middleware import ClearNotificationMiddleware
@@ -93,6 +93,7 @@ async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
                     await db.set_server_active(sid, 0)
                     # Запоминаем причину авто-приостановки
                     await db.set_setting(f"auto_suspended:{sid}", "silence")
+                    asyncio.create_task(push_license_event(db, sid, "suspended"))
                     logger.warning(
                         f"[monitor] Auto-suspended server {_fresh['name']} (id={sid}): "
                         f"silent for >{suspend_days} days"

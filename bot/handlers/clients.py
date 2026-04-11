@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from config import BOT_ADMIN_ID
 from database import Database
+from api import push_license_event
 from bot.banner import show
 from bot.formatting import format_server, clients_header
 from bot.states import AddServerState, RenameState, DurationState
@@ -180,6 +181,7 @@ async def cb_toggle_from_list(call: CallbackQuery, db: Database):
     await db.set_server_active(server_id, new_active)
     if new_active:
         await db.set_setting(f"auto_suspended:{server_id}", "")
+    asyncio.create_task(push_license_event(db, server_id, "resumed" if new_active else "suspended"))
     servers = await db.get_all_servers()
     await show(call, clients_header(len(servers)), reply_markup=clients_kb(servers, await _get_silent_ids(db)), db=db)
     await call.answer()
@@ -413,6 +415,7 @@ async def cb_toggle(call: CallbackQuery, state: FSMContext, db: Database):
     # Сброс флага авто-приостановки при ручном возобновлении
     if new_active:
         await db.set_setting(f"auto_suspended:{server_id}", "")
+    asyncio.create_task(push_license_event(db, server_id, "resumed" if new_active else "suspended"))
     await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
     await call.answer()
 
@@ -432,6 +435,7 @@ async def cb_blacklist(call: CallbackQuery, state: FSMContext, db: Database):
     if server.get("is_blacklisted"):
         await _clear_confirm(state, call.bot, call.message.chat.id)
         server = await db.unblacklist_server(server_id)
+        asyncio.create_task(push_license_event(db, server_id, "unblacklisted"))
         await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
         await call.answer("🔓 Сервер разблокирован")
         return
@@ -446,6 +450,7 @@ async def cb_blacklist(call: CallbackQuery, state: FSMContext, db: Database):
                 pass
         await state.update_data(confirm_blacklist=None, confirm_msg_id=None)
         server = await db.blacklist_server(server_id)
+        asyncio.create_task(push_license_event(db, server_id, "blacklisted"))
         await show(call, await _fmt_server(server, db), reply_markup=server_detail_kb(server), db=db)
         await call.answer("🚫 Сервер заблокирован")
     else:

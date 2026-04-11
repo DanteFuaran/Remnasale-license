@@ -110,6 +110,8 @@ class LicenseDB:
                 await db.execute("ALTER TABLE servers ADD COLUMN remnasale_ip TEXT DEFAULT ''")
             if "support_ip" not in columns:
                 await db.execute("ALTER TABLE servers ADD COLUMN support_ip TEXT DEFAULT ''")
+            if "app_domain" not in columns:
+                await db.execute("ALTER TABLE servers ADD COLUMN app_domain TEXT DEFAULT ''")
 
             # Платёжные шлюзы
             await db.execute("""
@@ -261,6 +263,14 @@ class LicenseDB:
             )
             await db.commit()
         return await self.get_server(server_id)
+
+    async def update_app_domain(self, license_key: str, app_domain: str):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE servers SET app_domain = ? WHERE license_key = ?",
+                (app_domain, license_key),
+            )
+            await db.commit()
 
     async def delete_server(self, server_id: int) -> bool:
         async with aiosqlite.connect(self.path) as db:

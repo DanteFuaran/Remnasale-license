@@ -44,6 +44,44 @@ def _fetch_remnasale_version() -> str:
     return _cached_version or "unknown"
 
 
+# ── Push-уведомления клиентам при смене статуса лицензии ──────────────────────
+
+import hmac as _hmac
+
+async def push_license_event(db, server_id: int, event: str):
+    """Отправляет push-уведомление клиенту Remnasale о смене статуса лицензии.
+
+    event: "suspended" | "resumed" | "blacklisted" | "unblacklisted"
+    """
+    server = await db.get_server(server_id)
+    if not server:
+        return
+    app_domain = (server.get("app_domain") or "").strip()
+    if not app_domain:
+        logger.debug(f"[push] No app_domain for server {server_id}, skipping push")
+        return
+
+    license_key = server["license_key"]
+    payload = json.dumps({"event": event, "server_id": server_id}, separators=(",", ":"))
+    signature = _hmac.new(license_key.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+    url = f"https://{app_domain}/api/v1/license/push"
+    try:
+        async with ClientSession(timeout=ClientTimeout(total=10)) as session:
+            async with session.post(
+                url,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-License-Signature": signature,
+                },
+                ssl=False,
+            ) as resp:
+                logger.info(f"[push] {event} → {app_domain}: {resp.status}")
+    except Exception as e:
+        logger.warning(f"[push] Failed to push {event} to {app_domain}: {e}")
+
+
 async def handle_verify(request: web.Request) -> web.Response:
     db = request.app["db"]
     try:
@@ -53,10 +91,17 @@ async def handle_verify(request: web.Request) -> web.Response:
 
     license_key = data.get("license_key", "").strip()
     server_ip = data.get("server_ip", "").strip()
+    server_domain = data.get("server_domain", "").strip()
     install_mode = bool(data.get("install", False))
 
     if not license_key:
         return web.json_response({"valid": False, "reason": "missing_key"}, status=400)
+
+    # Сохраняем app_domain клиента для push-уведомлений
+    if server_domain:
+        server = await db.get_server_by_key(license_key)
+        if server and server.get("app_domain") != server_domain:
+            await db.update_app_domain(license_key, server_domain)
 
     result = await db.verify_license(license_key, server_ip, install_mode=install_mode)
 
