@@ -381,9 +381,18 @@ _get_local_version() {
 }
 
 _get_remote_version() {
-    curl -sf --max-time 5 \
-        "https://raw.githubusercontent.com/DanteFuaran/Remnasale-license/main/version" \
-        2>/dev/null | grep '^version:' | awk '{print $2}' | tr -d '\n' || echo ""
+    local _ver=""
+    _ver=$(curl -sf --max-time 8 \
+        "https://raw.githubusercontent.com/DanteFuaran/Remnasale-license/main/version?$(date +%s)" \
+        2>/dev/null | grep '^version:' | awk '{print $2}' | tr -d '\n')
+    # Fallback via GitHub API
+    if [ -z "$_ver" ]; then
+        _ver=$(curl -sf --max-time 8 \
+            "https://api.github.com/repos/DanteFuaran/Remnasale-license/contents/version" \
+            2>/dev/null | grep '"content"' | sed 's/.*": "//;s/".*//' | base64 -d 2>/dev/null \
+            | grep '^version:' | awk '{print $2}' | tr -d '\n')
+    fi
+    echo "$_ver"
 }
 
 _version_gt() {
