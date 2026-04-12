@@ -54,7 +54,6 @@ def _write_remnasale_version(version: str) -> None:
     _cached_version = version
     _cached_at = time.monotonic()
 
-─
 
 # ── Push-уведомления клиентам при смене статуса лицензии ─────────────────────
 
