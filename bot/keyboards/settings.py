@@ -92,8 +92,7 @@ def branding_kb(has_banner: bool = False) -> InlineKeyboardMarkup:
     ])
 
 
-def sync_kb(check_interval: int, offline_grace_days: int, silence_suspend_days: int = 0) -> InlineKeyboardMarkup:
-    suspend_label = f"{silence_suspend_days} дн." if silence_suspend_days > 0 else "Откл."
+def sync_kb(check_interval: int, offline_grace_days: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text=f"🔄 Частота проверки: {check_interval} мин.",
@@ -102,10 +101,6 @@ def sync_kb(check_interval: int, offline_grace_days: int, silence_suspend_days: 
         [InlineKeyboardButton(
             text=f"📡 Автономность: {offline_grace_days} дн.",
             callback_data="settings_offline_grace",
-        )],
-        [InlineKeyboardButton(
-            text=f"⛔ Авто-приостановка: {suspend_label}",
-            callback_data="settings_silence_suspend",
         )],
         [
             InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu", style="primary"),
