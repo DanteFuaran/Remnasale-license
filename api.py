@@ -44,9 +44,19 @@ def _fetch_remnasale_version() -> str:
     return _cached_version or "unknown"
 
 
-# ── Push-уведомления клиентам при смене статуса лицензии ──────────────────────
+def _write_remnasale_version(version: str) -> None:
+    """Write pushed version to packages directory and invalidate cache."""
+    global _cached_version, _cached_at
+    version_file = os.path.join(PACKAGES_DIR, "remnasale", "version")
+    os.makedirs(os.path.dirname(version_file), exist_ok=True)
+    with open(version_file, "w") as f:
+        f.write(f"version: {version}\n")
+    _cached_version = version
+    _cached_at = time.monotonic()
 
-import hmac as _hmac
+─
+
+# ── Push-уведомления клиентам при смене статуса лицензии ─────────────────────
 
 async def push_license_event(db, server_id: int, event: str):
     """Отправляет push-уведомление клиенту Remnasale о смене статуса лицензии.
@@ -152,6 +162,35 @@ async def handle_version(request: web.Request) -> web.Response:
 
     version = _fetch_remnasale_version()
     return web.json_response({"version": version})
+
+
+async def handle_push_version(request: web.Request) -> web.Response:
+    """Receive new Remnasale version pushed by the update script after a successful update."""
+    db = request.app["db"]
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid_json"}, status=400)
+
+    key = data.get("key", "").strip()
+    version = data.get("version", "").strip()
+
+    if not key:
+        return web.json_response({"error": "missing_key"}, status=401)
+    if not version:
+        return web.json_response({"error": "missing_version"}, status=400)
+
+    result = await db.check_key_valid(key)
+    if not result["valid"]:
+        return web.json_response({"error": result.get("reason", "invalid")}, status=403)
+
+    try:
+        _write_remnasale_version(version)
+        logger.info(f"[version-push] Version updated to {version} via push (key ...{key[-4:]})")
+        return web.json_response({"ok": True, "version": version})
+    except Exception as e:
+        logger.error(f"[version-push] Failed to write version: {e}")
+        return web.json_response({"error": "write_failed"}, status=500)
 
 
 async def handle_release(request: web.Request) -> web.Response:
@@ -807,6 +846,7 @@ def setup_routes(app: web.Application):
     app.router.add_post("/api/v1/client-message", handle_client_message)
     app.router.add_post("/api/v1/notify/offline", handle_notify_offline)
     app.router.add_get("/api/v1/version", handle_version)
+    app.router.add_post("/api/v1/version/push", handle_push_version)
     app.router.add_get("/api/v1/download", handle_download)
     app.router.add_get("/api/v1/install/script", handle_install_script)
     app.router.add_post("/api/v1/webhook/yoomoney", handle_webhook_yoomoney)

@@ -17,6 +17,10 @@ _GITHUB_API = "https://api.github.com"
 _GITHUB_RAW = "https://raw.githubusercontent.com"
 
 _PRODUCT_DIR = os.path.join(PACKAGES_DIR, "remnasale")
+# Отдельный файл для отслеживания версии последнего скачанного тарбола.
+# Файл `version` теперь обновляется только через POST /api/v1/version/push
+# (вызывается инсталлером сразу после успешного обновления).
+_SYNC_VERSION_FILE = os.path.join(_PRODUCT_DIR, ".sync_version")
 
 
 def _parse_version(text: str) -> str:
@@ -38,20 +42,20 @@ def _version_tuple(v: str) -> tuple[int, ...]:
 
 
 def _read_local_version() -> str:
-    """Read current local version from packages directory."""
-    path = os.path.join(_PRODUCT_DIR, "version")
-    if not os.path.exists(path):
+    """Read last synced tarball version (used only for tarball re-download check)."""
+    if not os.path.exists(_SYNC_VERSION_FILE):
         return ""
     try:
-        with open(path, "r") as f:
+        with open(_SYNC_VERSION_FILE, "r") as f:
             return _parse_version(f.read())
     except Exception:
         return ""
 
 
 def _write_local_version(version: str) -> None:
+    """Track last downloaded tarball version (does NOT touch the `version` file)."""
     os.makedirs(_PRODUCT_DIR, exist_ok=True)
-    with open(os.path.join(_PRODUCT_DIR, "version"), "w") as f:
+    with open(_SYNC_VERSION_FILE, "w") as f:
         f.write(f"version: {version}\n")
 
 
