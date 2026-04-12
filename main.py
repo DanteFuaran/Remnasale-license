@@ -45,6 +45,9 @@ async def _init_default_banner(bot: Bot, db: LicenseDB):
 
 # Ключ в settings для хранения множества id серверов без связи
 _SETTING_SILENT = "monitor_silent_ids"
+# Ключ для хранения времени первого появления сервера после молчания
+# Формат: JSON {server_id: iso_timestamp}
+_SETTING_RECOVERY_PENDING = "monitor_recovery_pending"
 
 
 async def _load_silent(db: LicenseDB) -> set[int]:
@@ -61,6 +64,24 @@ async def _load_silent(db: LicenseDB) -> set[int]:
 async def _save_silent(db: LicenseDB, ids: set[int]) -> None:
     import json as _json
     await db.set_setting(_SETTING_SILENT, _json.dumps(list(ids)))
+
+
+async def _load_recovery_pending(db: LicenseDB) -> dict:
+    """Загружает словарь {server_id: iso_timestamp} серверов ожидающих подтверждения восстановления."""
+    import json as _json
+    val = await db.get_setting(_SETTING_RECOVERY_PENDING, "")
+    if not val:
+        return {}
+    try:
+        raw = _json.loads(val)
+        return {int(k): v for k, v in raw.items()}
+    except Exception:
+        return {}
+
+
+async def _save_recovery_pending(db: LicenseDB, pending: dict) -> None:
+    import json as _json
+    await db.set_setting(_SETTING_RECOVERY_PENDING, _json.dumps({str(k): v for k, v in pending.items()}))
 
 
 async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
@@ -126,34 +147,60 @@ async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
                     silent_ids.discard(sid)
 
             # Восстановившиеся серверы
+            recovery_pending = await _load_recovery_pending(db)
+            now_utc = datetime.now(timezone.utc)
+
             recovered = notified_silent - silent_ids
             truly_recovered = set()
             for sid in recovered:
                 server = await db.get_server(sid)
                 if not server:
                     notified_silent.discard(sid)
+                    recovery_pending.pop(sid, None)
                     continue
                 # Проверяем что last_check_at действительно свежий (сервер реально ожил)
                 last_check = server.get("last_check_at")
                 if not last_check:
-                    # last_check_at нет — сервер не чекинился, просто убираем из notified без алерта
                     notified_silent.discard(sid)
+                    recovery_pending.pop(sid, None)
                     continue
                 try:
                     dt = datetime.fromisoformat(last_check)
                     if dt.tzinfo is None:
                         dt = dt.replace(tzinfo=timezone.utc)
-                    elapsed = (datetime.now(timezone.utc) - dt).total_seconds() / 60
+                    elapsed = (now_utc - dt).total_seconds() / 60
                 except (ValueError, TypeError):
                     notified_silent.discard(sid)
+                    recovery_pending.pop(sid, None)
                     continue
                 if elapsed >= check_interval:
-                    # last_check_at всё ещё старый — сервер на самом деле не ожил,
-                    # просто выпал из мониторинга по другой причине (напр. IP сброшен).
-                    # Убираем без алерта.
+                    # last_check_at всё ещё старый — сервер на самом деле не ожил
                     notified_silent.discard(sid)
+                    recovery_pending.pop(sid, None)
                     continue
+
+                # 2-цикловое подтверждение: не отправляем уведомление сразу при первом обнаружении.
+                # Это защищает от ложных срабатываний во время установки (lifespan.py делает verify при старте).
+                if sid not in recovery_pending:
+                    # Первый раз видим восстановление — запоминаем момент, ждём следующего цикла
+                    recovery_pending[sid] = now_utc.isoformat()
+                    continue
+
+                # Проверяем, прошло ли достаточно времени с первого обнаружения
+                try:
+                    first_seen = datetime.fromisoformat(recovery_pending[sid])
+                    if first_seen.tzinfo is None:
+                        first_seen = first_seen.replace(tzinfo=timezone.utc)
+                    waited_min = (now_utc - first_seen).total_seconds() / 60
+                except Exception:
+                    waited_min = check_interval  # при ошибке разбора — считаем что прошло
+
+                if waited_min < check_interval:
+                    # Ещё не прошёл один полный интервал — ждём
+                    continue
+
                 truly_recovered.add(sid)
+                recovery_pending.pop(sid, None)
                 if BOT_ADMIN_ID:
                     _domain = (server.get('app_domain') or '').strip()
                     _domain_line = f"\n🌐 Домен: <code>{_domain}</code>" if _domain else ""
@@ -170,6 +217,13 @@ async def _monitor_clients_loop(db: LicenseDB, bot: Bot):
                         await bot.send_message(BOT_ADMIN_ID, text, reply_markup=kb, parse_mode="HTML")
                     except Exception:
                         pass
+
+            # Очищаем pending-записи серверов, которые снова ушли в offline
+            for sid in list(recovery_pending.keys()):
+                if sid in silent_ids:
+                    recovery_pending.pop(sid, None)
+
+            await _save_recovery_pending(db, recovery_pending)
             notified_silent.difference_update(truly_recovered)
 
             # Новые молчащие серверы
